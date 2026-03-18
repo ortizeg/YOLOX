@@ -18,7 +18,7 @@ class TestLoadCkpt:
         path = tmp_path / "ckpt.pth"
         torch.save(state, path)
 
-        loaded_state = torch.load(path, map_location="cpu")
+        loaded_state = torch.load(path, map_location="cpu", weights_only=False)
         new_model = _make_model()
         # Scramble weights to ensure load actually changes them
         with torch.no_grad():
