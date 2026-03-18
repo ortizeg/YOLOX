@@ -1,0 +1,25 @@
+{
+  "config": {
+    "model": "yolox-s",
+    "batch_size": 64,
+    "input_size": [
+      640,
+      640
+    ]
+  },
+  "training": {
+    "data_loader_ms": 464.26,
+    "host_to_gpu_ms": 50.968,
+    "forward_pass_ms": 1043.622,
+    "backward_pass_ms": 139.5,
+    "optimizer_step_ms": 2.843,
+    "total_throughput_imgs_per_sec": 41.76,
+    "peak_gpu_memory_mb": 46990.95
+  },
+  "inference": {
+    "forward_pass_ms_per_img": 6.59,
+    "postprocess_ms_per_img": 0.539,
+    "total_ms_per_img": 7.129,
+    "peak_gpu_memory_mb": 162.81
+  }
+}
