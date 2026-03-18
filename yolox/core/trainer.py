@@ -43,8 +43,9 @@ class Trainer:
 
         # training related attr
         self.max_epoch = exp.max_epoch
-        self.amp_training = args.fp16
-        self.scaler = torch.cuda.amp.GradScaler(enabled=args.fp16)
+        self.amp_training = args.fp16 or getattr(args, "bf16", False)
+        self.amp_dtype = torch.bfloat16 if getattr(args, "bf16", False) else torch.float16
+        self.scaler = torch.amp.GradScaler("cuda", enabled=args.fp16)
         self.is_distributed = get_world_size() > 1
         self.rank = get_rank()
         self.local_rank = get_local_rank()
@@ -53,7 +54,12 @@ class Trainer:
         self.save_history_ckpt = exp.save_history_ckpt
 
         # data/dataloader related attr
-        self.data_type = torch.float16 if args.fp16 else torch.float32
+        if getattr(args, "bf16", False):
+            self.data_type = torch.bfloat16
+        elif args.fp16:
+            self.data_type = torch.float16
+        else:
+            self.data_type = torch.float32
         self.input_size = exp.input_size
         self.best_ap = 0
 
@@ -103,7 +109,7 @@ class Trainer:
         inps, targets = self.exp.preprocess(inps, targets, self.input_size)
         data_end_time = time.time()
 
-        with torch.cuda.amp.autocast(enabled=self.amp_training):
+        with torch.amp.autocast("cuda", enabled=self.amp_training, dtype=self.amp_dtype):
             outputs = self.model(inps, targets)
 
         loss = outputs["total_loss"]
@@ -139,6 +145,11 @@ class Trainer:
             "Model Summary: {}".format(get_model_info(model, self.exp.test_size))
         )
         model.to(self.device)
+
+        # optionally apply torch.compile
+        if getattr(self.args, "compile", False):
+            logger.info("Applying torch.compile to model...")
+            model = torch.compile(model)
 
         # solver related init
         self.optimizer = self.exp.get_optimizer(self.args.batch_size)
