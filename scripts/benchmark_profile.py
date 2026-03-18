@@ -117,7 +117,7 @@ def profile_training(model, optimizer, batch_size, train_iters, warmup):
         imgs_cpu = torch.randn(batch_size, 3, 640, 640)
         imgs = imgs_cpu.cuda()
         outputs = model(imgs, targets)
-        loss = outputs
+        loss = outputs["total_loss"]
         loss.backward()
         optimizer.step()
         optimizer.zero_grad()
@@ -165,7 +165,7 @@ def profile_training(model, optimizer, batch_size, train_iters, warmup):
     for _ in range(train_iters):
         optimizer.zero_grad()
         outputs = model(imgs, targets)
-        loss = outputs
+        loss = outputs["total_loss"]
         torch.cuda.synchronize()
         s, e = cuda_timer()
         s.record()
@@ -181,7 +181,7 @@ def profile_training(model, optimizer, batch_size, train_iters, warmup):
     for _ in range(train_iters):
         optimizer.zero_grad()
         outputs = model(imgs, targets)
-        loss = outputs
+        loss = outputs["total_loss"]
         loss.backward()
         torch.cuda.synchronize()
         s, e = cuda_timer()
@@ -202,7 +202,7 @@ def profile_training(model, optimizer, batch_size, train_iters, warmup):
         imgs_gpu = imgs_cpu.cuda()
         optimizer.zero_grad()
         outputs = model(imgs_gpu, targets)
-        loss = outputs
+        loss = outputs["total_loss"]
         loss.backward()
         optimizer.step()
     end_evt.record()
