@@ -8,6 +8,8 @@ import os
 import pickle
 import xml.etree.ElementTree as ET
 
+from loguru import logger
+
 import numpy as np
 
 
@@ -91,9 +93,9 @@ def voc_eval(
         for i, imagename in enumerate(imagenames):
             recs[imagename] = parse_rec(annopath.format(imagename))
             if i % 100 == 0:
-                print(f"Reading annotation for {i + 1}/{len(imagenames)}")
+                logger.info(f"Reading annotation for {i + 1}/{len(imagenames)}")
         # save
-        print(f"Saving cached annotations to {cachefile}")
+        logger.info(f"Saving cached annotations to {cachefile}")
         with open(cachefile, "wb") as f:
             pickle.dump(recs, f)
     else:

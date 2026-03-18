@@ -436,7 +436,7 @@ class YOLOXHead(nn.Module):
     ):
 
         if mode == "cpu":
-            print("-----------Using CPU for the Current Batch-------------")
+            logger.warning("Using CPU for the current batch due to memory constraints")
             gt_bboxes_per_image = gt_bboxes_per_image.cpu().float()
             bboxes_preds_per_image = bboxes_preds_per_image.cpu().float()
             gt_classes = gt_classes.cpu().float()
