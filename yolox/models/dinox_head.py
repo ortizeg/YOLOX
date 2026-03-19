@@ -599,6 +599,20 @@ class DINOXHead(nn.Module):
         is_in_gts = deltas.min(dim=-1).values > 0  # [num_gt, n_anchors]
         anchor_filter = is_in_gts.any(dim=0)  # [n_anchors]
 
+        # Fallback: if no anchor is inside any GT box (tiny objects), use
+        # nearest anchors by distance to ensure at least some candidates
+        if not anchor_filter.any():
+            gt_cx = gt_bboxes_per_image[:, 0:1]
+            gt_cy = gt_bboxes_per_image[:, 1:2]
+            all_dist = torch.sqrt(
+                (x_centers.unsqueeze(0) - gt_cx) ** 2
+                + (y_centers.unsqueeze(0) - gt_cy) ** 2
+            )
+            min_dist_per_anchor = all_dist.min(dim=0).values
+            # Keep the closest anchors (within 3 stride units of nearest GT)
+            threshold = expanded_strides_per_image * self.soft_center_radius
+            anchor_filter = min_dist_per_anchor < threshold
+
         # Soft center prior: 10^(distance/stride - radius)
         gt_cx = gt_bboxes_per_image[:, 0:1]
         gt_cy = gt_bboxes_per_image[:, 1:2]
