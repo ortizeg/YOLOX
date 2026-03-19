@@ -40,8 +40,7 @@ def get_async_norm_states(module):
 
 def pyobj2tensor(pyobj, device="cuda"):
     """serialize picklable python object to tensor"""
-    storage = torch.ByteStorage.from_buffer(pickle.dumps(pyobj))
-    return torch.ByteTensor(storage).to(device=device)
+    return torch.frombuffer(bytearray(pickle.dumps(pyobj)), dtype=torch.uint8).to(device=device)
 
 
 def tensor2pyobj(tensor):

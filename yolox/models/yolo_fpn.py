@@ -2,6 +2,8 @@
 # -*- encoding: utf-8 -*-
 # Copyright (c) Megvii Inc. All rights reserved.
 
+from loguru import logger
+
 import torch
 import torch.nn as nn
 
@@ -52,8 +54,8 @@ class YOLOFPN(nn.Module):
 
     def load_pretrained_model(self, filename="./weights/darknet53.mix.pth"):
         with open(filename, "rb") as f:
-            state_dict = torch.load(f, map_location="cpu")
-        print("loading pretrained weights...")
+            state_dict = torch.load(f, map_location="cpu", weights_only=False)
+        logger.info("loading pretrained weights...")
         self.backbone.load_state_dict(state_dict)
 
     def forward(self, inputs):

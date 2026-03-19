@@ -8,6 +8,8 @@
 import copy
 import time
 
+from loguru import logger
+
 import numpy as np
 from pycocotools.cocoeval import COCOeval
 
@@ -33,17 +35,17 @@ class COCOeval_opt(COCOeval):
         """
         tic = time.time()
 
-        print("Running per image evaluation...")
+        logger.info("Running per image evaluation...")
         p = self.params
         # add backward compatibility if useSegm is specified in params
         if p.useSegm is not None:
             p.iouType = "segm" if p.useSegm == 1 else "bbox"
-            print(
+            logger.info(
                 "useSegm (deprecated) is not None. Running {} evaluation".format(
                     p.iouType
                 )
             )
-        print("Evaluate annotation type *{}*".format(p.iouType))
+        logger.info("Evaluate annotation type *{}*".format(p.iouType))
         p.imgIds = list(np.unique(p.imgIds))
         if p.useCats:
             p.catIds = list(np.unique(p.catIds))
@@ -119,7 +121,7 @@ class COCOeval_opt(COCOeval):
 
         self._paramsEval = copy.deepcopy(self.params)
         toc = time.time()
-        print("COCOeval_opt.evaluate() finished in {:0.2f} seconds.".format(toc - tic))
+        logger.info("COCOeval_opt.evaluate() finished in {:0.2f} seconds.".format(toc - tic))
         # >>>> End of code differences with original COCO API
 
     def accumulate(self):
@@ -127,10 +129,10 @@ class COCOeval_opt(COCOeval):
         Accumulate per image evaluation results and store the result in self.eval.  Does not
         support changing parameter settings from those used by self.evaluate()
         """
-        print("Accumulating evaluation results...")
+        logger.info("Accumulating evaluation results...")
         tic = time.time()
         if not hasattr(self, "_evalImgs_cpp"):
-            print("Please run evaluate() first")
+            logger.info("Please run evaluate() first")
 
         self.eval = self.module.COCOevalAccumulate(self._paramsEval, self._evalImgs_cpp)
 
@@ -146,6 +148,6 @@ class COCOeval_opt(COCOeval):
         )
         self.eval["scores"] = np.array(self.eval["scores"]).reshape(self.eval["counts"])
         toc = time.time()
-        print(
+        logger.info(
             "COCOeval_opt.accumulate() finished in {:0.2f} seconds.".format(toc - tic)
         )

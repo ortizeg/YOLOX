@@ -20,7 +20,8 @@ class TestModelUtils(unittest.TestCase):
         data = torch.ones(1, 10, 10, 10)
         # use bn since bn changes state during train/val
         model = nn.BatchNorm2d(10)
-        prev_state = model.state_dict()
+        # Deep-copy state to avoid shared storage with model buffers
+        prev_state = {k: v.clone() for k, v in model.state_dict().items()}
 
         modes = [False, True]
         results = [True, False]
@@ -37,7 +38,7 @@ class TestModelUtils(unittest.TestCase):
             )
 
         # test recurrsive context case
-        prev_state = model.state_dict()
+        prev_state = {k: v.clone() for k, v in model.state_dict().items()}
         with adjust_status(model, training=False):
             with adjust_status(model, training=False):
                 model(data)
@@ -78,7 +79,7 @@ class TestModelUtils(unittest.TestCase):
         data = torch.rand(1, 3, 10, 10)
         model.train()
         assert isinstance(model[1], nn.BatchNorm2d)
-        before_states = model[1].state_dict()
+        before_states = {k: v.clone() for k, v in model[1].state_dict().items()}
         freeze_module(model[1])
         model(data)
         after_states = model[1].state_dict()
