@@ -244,20 +244,39 @@ class TestSoftCenterPrior:
 
     def test_closer_anchors_have_lower_cost(self, head: DINOXHead) -> None:
         """Anchors closer to GT center should have lower prior cost."""
-        gt_bboxes = torch.tensor([[160.0, 160.0, 40.0, 40.0]])  # center at (160, 160)
+        # GT box at (300, 300) with size 200x200 -> xyxy [200, 200, 400, 400]
+        gt_bboxes = torch.tensor([[300.0, 300.0, 200.0, 200.0]])
         expanded_strides = torch.full((1, 3), 8.0)
-        # Three anchors at grid positions: (19.5, 19.5), (20.5, 20.5), (25.5, 25.5)
-        # In pixel coords: (156, 156), (164, 164), (204, 204)
+        # Three anchors all inside the box but at different distances from center:
+        # Pixel coords: (252, 252), (300, 300), (372, 372) — all inside [200, 400]
+        x_shifts = torch.tensor([[31.0, 37.0, 46.0]])
+        y_shifts = torch.tensor([[31.0, 37.0, 46.0]])
+
+        anchor_filter, soft_prior = head.get_geometry_constraint(
+            gt_bboxes, expanded_strides, x_shifts, y_shifts,
+        )
+        # All 3 should be inside the GT box
+        assert anchor_filter.sum() == 3, "All anchors should be inside GT box"
+        # Anchor at (300,300) is closest to center, should have lowest cost
+        assert soft_prior[0, 1] < soft_prior[0, 0], \
+            "Center anchor should have lower cost than off-center"
+        assert soft_prior[0, 1] < soft_prior[0, 2], \
+            "Center anchor should have lower cost than far anchor"
+
+    def test_outside_gt_box_filtered(self, head: DINOXHead) -> None:
+        """Anchors outside all GT boxes should be filtered out."""
+        gt_bboxes = torch.tensor([[160.0, 160.0, 40.0, 40.0]])  # xyxy [140, 140, 180, 180]
+        expanded_strides = torch.full((1, 3), 8.0)
+        # Anchor at (156, 156) inside, (164, 164) inside, (204, 204) outside
         x_shifts = torch.tensor([[19.0, 20.0, 25.0]])
         y_shifts = torch.tensor([[19.0, 20.0, 25.0]])
 
-        _, soft_prior = head.get_geometry_constraint(
+        anchor_filter, soft_prior = head.get_geometry_constraint(
             gt_bboxes, expanded_strides, x_shifts, y_shifts,
         )
-        # All 3 should pass the filter; closer anchor should have lower cost
-        if soft_prior.shape[1] == 3:
-            assert soft_prior[0, 0] < soft_prior[0, 2], \
-                "Closer anchor should have lower soft center prior cost"
+        # Only 2 of 3 anchors should pass (the one at 204 is outside)
+        assert anchor_filter.sum() == 2, \
+            f"Expected 2 anchors inside GT box, got {anchor_filter.sum()}"
 
 
 # ------------------------------------------------------------------ #

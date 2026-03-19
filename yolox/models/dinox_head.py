@@ -562,13 +562,12 @@ class DINOXHead(nn.Module):
         x_shifts: torch.Tensor,
         y_shifts: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """RTMDet-style soft center prior.
+        """RTMDet-style soft center prior with inside-GT-box pre-filtering.
 
-        Instead of a hard binary mask with INF penalty, returns a continuous
-        cost ``10^(distance - radius)`` that grows exponentially outside a soft
-        radius. Anchors beyond ``radius + 1.0`` strides are filtered out to
-        save memory, but remaining anchors receive a continuous penalty rather
-        than a binary accept/reject.
+        Pre-filters anchors to those geometrically inside at least one GT box
+        (matching mmdetection's ``DynamicSoftLabelAssigner``), then applies a
+        continuous exponential cost ``10^(distance/stride - radius)`` that
+        penalizes anchors far from GT centers.
 
         Args:
             gt_bboxes_per_image: GT boxes ``[num_gt, 4]`` in cxcywh format.
@@ -581,28 +580,34 @@ class DINOXHead(nn.Module):
             soft_center_prior: Continuous cost ``[num_gt, num_filtered]``.
         """
         expanded_strides_per_image = expanded_strides[0]
-        x_centers_per_image = (x_shifts[0] + 0.5) * expanded_strides_per_image  # [n_anchors]
-        y_centers_per_image = (y_shifts[0] + 0.5) * expanded_strides_per_image  # [n_anchors]
+        x_centers = (x_shifts[0] + 0.5) * expanded_strides_per_image  # [n_anchors]
+        y_centers = (y_shifts[0] + 0.5) * expanded_strides_per_image  # [n_anchors]
 
-        gt_cx = gt_bboxes_per_image[:, 0:1]  # [num_gt, 1]
-        gt_cy = gt_bboxes_per_image[:, 1:2]  # [num_gt, 1]
+        # GT boxes: cxcywh -> xyxy edges
+        gt_x1 = gt_bboxes_per_image[:, 0:1] - gt_bboxes_per_image[:, 2:3] / 2  # [num_gt, 1]
+        gt_y1 = gt_bboxes_per_image[:, 1:2] - gt_bboxes_per_image[:, 3:4] / 2
+        gt_x2 = gt_bboxes_per_image[:, 0:1] + gt_bboxes_per_image[:, 2:3] / 2
+        gt_y2 = gt_bboxes_per_image[:, 1:2] + gt_bboxes_per_image[:, 3:4] / 2
 
-        # Distance from each anchor to each GT center, normalized by stride
+        # Inside-GT-box check: anchor center must be inside at least one GT box
         # [num_gt, n_anchors]
+        left = x_centers.unsqueeze(0) - gt_x1
+        top = y_centers.unsqueeze(0) - gt_y1
+        right = gt_x2 - x_centers.unsqueeze(0)
+        bottom = gt_y2 - y_centers.unsqueeze(0)
+        deltas = torch.stack([left, top, right, bottom], dim=-1)  # [num_gt, n_anchors, 4]
+        is_in_gts = deltas.min(dim=-1).values > 0  # [num_gt, n_anchors]
+        anchor_filter = is_in_gts.any(dim=0)  # [n_anchors]
+
+        # Soft center prior: 10^(distance/stride - radius)
+        gt_cx = gt_bboxes_per_image[:, 0:1]
+        gt_cy = gt_bboxes_per_image[:, 1:2]
         distance = torch.sqrt(
-            (x_centers_per_image.unsqueeze(0) - gt_cx) ** 2
-            + (y_centers_per_image.unsqueeze(0) - gt_cy) ** 2
-        ) / expanded_strides_per_image.unsqueeze(0)
+            (x_centers[anchor_filter].unsqueeze(0) - gt_cx) ** 2
+            + (y_centers[anchor_filter].unsqueeze(0) - gt_cy) ** 2
+        ) / expanded_strides_per_image[anchor_filter].unsqueeze(0)
 
-        # Soft center prior: 10^(distance - radius)
-        # Within radius: cost < 1.0; outside: cost grows exponentially
         soft_center_prior = torch.pow(10, distance - self.soft_center_radius)
-
-        # Still filter to a reasonable candidate set to save memory
-        # Keep anchors within extended_radius of any GT center
-        extended_radius = self.soft_center_radius + 1.0  # slight extension
-        anchor_filter = (distance < extended_radius).any(dim=0)
-        soft_center_prior = soft_center_prior[:, anchor_filter]
 
         return anchor_filter, soft_center_prior
 
