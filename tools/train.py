@@ -66,6 +66,18 @@ def make_parser():
         help="Adopting mix precision training.",
     )
     parser.add_argument(
+        "--bf16",
+        default=False,
+        action="store_true",
+        help="Use bfloat16 mixed precision training.",
+    )
+    parser.add_argument(
+        "--compile",
+        default=False,
+        action="store_true",
+        help="Apply torch.compile to model for potential speedup.",
+    )
+    parser.add_argument(
         "--cache",
         type=str,
         nargs="?",
