@@ -97,3 +97,92 @@ class QualityFocalLoss(nn.Module):
         elif self.reduction == "sum":
             return loss.sum()
         return loss
+
+
+class Integral(nn.Module):
+    """Convert discrete distribution logits to a point estimate via weighted sum.
+
+    Used by DFL (Distribution Focal Loss) to decode box regression
+    distributions into scalar offsets. Computes::
+
+        offset = sum(softmax(logits) * [0, 1, 2, ..., reg_max])
+
+    Reference: GFL paper (arXiv 2006.04388), mmdetection ``Integral`` class.
+
+    Args:
+        reg_max: Maximum regression range. The distribution has
+            ``reg_max + 1`` bins covering ``[0, reg_max]``.
+    """
+
+    def __init__(self, reg_max: int = 16) -> None:
+        super().__init__()
+        self.reg_max = reg_max
+        self.register_buffer(
+            "project", torch.linspace(0, reg_max, reg_max + 1)
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Convert distribution logits to scalar offsets.
+
+        Args:
+            x: Logits of shape ``(N, 4 * (reg_max + 1))`` or
+               ``(N, reg_max + 1)``.
+
+        Returns:
+            Point estimates of shape ``(N, 4)`` or ``(N, 1)``.
+        """
+        shape = x.shape
+        x = F.softmax(x.reshape(-1, self.reg_max + 1), dim=1)
+        x = F.linear(x, self.project.type_as(x).unsqueeze(0))
+        # Restore leading dims: if input was (N, 4*(reg_max+1)), output is (N, 4)
+        if len(shape) >= 2 and shape[-1] == 4 * (self.reg_max + 1):
+            x = x.reshape(*shape[:-1], 4)
+        return x
+
+
+class DistributionFocalLoss(nn.Module):
+    """Distribution Focal Loss from the GFL paper (arXiv 2006.04388).
+
+    For a continuous target ``y`` falling between integer bins ``y_i`` and
+    ``y_{i+1}``, the loss distributes cross-entropy supervision across both
+    adjacent bins weighted by proximity::
+
+        DFL = (y_{i+1} - y) * CE(logits, y_i) + (y - y_i) * CE(logits, y_{i+1})
+
+    This encourages the predicted distribution to peak around the true target.
+
+    Args:
+        reduction: ``"none"`` | ``"mean"`` | ``"sum"``.
+    """
+
+    def __init__(self, reduction: str = "none") -> None:
+        super().__init__()
+        self.reduction = reduction
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """Compute DFL.
+
+        Args:
+            pred: Distribution logits ``(N, reg_max + 1)`` before softmax.
+            target: Continuous target values ``(N,)`` in ``[0, reg_max)``.
+
+        Returns:
+            Per-sample loss ``(N,)`` when ``reduction="none"``.
+        """
+        n_bins = pred.shape[-1]
+        # Clamp target to valid range [0, n_bins - 1) to prevent index overflow
+        target = target.clamp(min=0, max=n_bins - 1 - 0.01)
+        dis_left = target.long()
+        dis_right = (dis_left + 1).clamp(max=n_bins - 1)
+        weight_left = dis_right.float() - target
+        weight_right = target - dis_left.float()
+        loss = (
+            F.cross_entropy(pred, dis_left, reduction="none") * weight_left
+            + F.cross_entropy(pred, dis_right, reduction="none") * weight_right
+        )
+
+        if self.reduction == "mean":
+            return loss.mean()
+        elif self.reduction == "sum":
+            return loss.sum()
+        return loss
