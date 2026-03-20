@@ -483,8 +483,8 @@ class DINOXHead(nn.Module):
         pos_mask = labels >= 0
         if pos_mask.any():
             pos_inds = pos_mask.nonzero(as_tuple=False).squeeze(1)
-            pos_labels = labels[pos_inds]
-            pos_scores = scores[pos_inds].float()
+            pos_labels = labels[pos_inds].clamp(0, pred.shape[1] - 1)
+            pos_scores = scores[pos_inds].float().clamp(0.0, 1.0)
 
             scale = (pos_scores - pred_sigmoid[pos_inds, pos_labels]).abs().pow(beta)
             loss[pos_inds, pos_labels] = F.binary_cross_entropy_with_logits(
@@ -543,7 +543,7 @@ class DINOXHead(nn.Module):
             bboxes_preds_per_image = bboxes_preds_per_image.cpu()
 
         pair_wise_ious = bboxes_iou(gt_bboxes_per_image, bboxes_preds_per_image, False)
-        pair_wise_ious = pair_wise_ious.clamp(min=0.0, max=1.0)
+        pair_wise_ious = torch.nan_to_num(pair_wise_ious, nan=0.0).clamp(min=0.0, max=1.0)
 
         gt_cls_per_image = (
             F.one_hot(gt_classes.to(torch.int64), self.num_classes)
@@ -564,8 +564,7 @@ class DINOXHead(nn.Module):
             pred_scores = (cls_logits.sigmoid() * obj_logits.sigmoid()).sqrt()
 
             # Extract GT class channel for each GT: [num_gt, num_anchors]
-            gt_class_inds = gt_classes.long()  # [num_gt]
-            # pred_scores[:, gt_class] for each gt -> [num_gt, num_anchors]
+            gt_class_inds = gt_classes.long().clamp(0, self.num_classes - 1)
             pairwise_pred_scores = pred_scores[:, gt_class_inds].T  # [num_gt, num_anchors]
             pairwise_pred_scores = pairwise_pred_scores.clamp(min=1e-6, max=1.0 - 1e-6)
 
