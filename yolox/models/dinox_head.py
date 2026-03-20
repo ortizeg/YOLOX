@@ -470,6 +470,8 @@ class DINOXHead(nn.Module):
         Returns:
             Per-anchor loss ``(N,)`` summed over classes.
         """
+        # Compute in float32 for numerical stability (AMP sends half-precision)
+        pred = pred.float()
         pred_sigmoid = pred.sigmoid()
         # Step 1: background loss for all anchors, all classes
         zerolabel = pred.new_zeros(pred.shape)
@@ -482,7 +484,7 @@ class DINOXHead(nn.Module):
         if pos_mask.any():
             pos_inds = pos_mask.nonzero(as_tuple=False).squeeze(1)
             pos_labels = labels[pos_inds]
-            pos_scores = scores[pos_inds]
+            pos_scores = scores[pos_inds].float()
 
             scale = (pos_scores - pred_sigmoid[pos_inds, pos_labels]).abs().pow(beta)
             loss[pos_inds, pos_labels] = F.binary_cross_entropy_with_logits(
