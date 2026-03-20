@@ -489,6 +489,7 @@ class DINOXHead(nn.Module):
             bboxes_preds_per_image = bboxes_preds_per_image.cpu()
 
         pair_wise_ious = bboxes_iou(gt_bboxes_per_image, bboxes_preds_per_image, False)
+        pair_wise_ious = pair_wise_ious.clamp(min=0.0, max=1.0)
 
         gt_cls_per_image = (
             F.one_hot(gt_classes.to(torch.int64), self.num_classes)
@@ -508,6 +509,8 @@ class DINOXHead(nn.Module):
             # Use logits directly for BCE_with_logits formulation
             # RTMDet merges cls+obj into a single score via geometric mean
             pred_scores = (cls_logits.sigmoid() * obj_logits.sigmoid()).sqrt()
+            # Clamp to [eps, 1-eps] for numerical stability with BCE
+            pred_scores = pred_scores.clamp(min=1e-6, max=1.0 - 1e-6)
 
             # Soft targets: one_hot * IoU  [num_gt, num_anchors, num_classes]
             soft_label = (
