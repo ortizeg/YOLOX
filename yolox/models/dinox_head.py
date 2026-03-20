@@ -295,7 +295,8 @@ class DINOXHead(nn.Module):
         if self.use_l1:
             origin_preds = torch.cat(origin_preds, 1)
 
-        cls_targets = []
+        cls_labels = []   # per-anchor class index (-1 for background)
+        cls_scores = []   # per-anchor IoU quality score (0 for background)
         reg_targets = []
         l1_targets = []
         obj_targets = []
@@ -309,7 +310,8 @@ class DINOXHead(nn.Module):
             num_gt = int(nlabel[batch_idx])
             num_gts += num_gt
             if num_gt == 0:
-                cls_target = outputs.new_zeros((0, self.num_classes))
+                cls_label = outputs.new_full((total_num_anchors,), -1, dtype=torch.long)
+                cls_score = outputs.new_zeros((total_num_anchors,))
                 reg_target = outputs.new_zeros((0, 4))
                 l1_target = outputs.new_zeros((0, 4))
                 obj_target = outputs.new_zeros((total_num_anchors, 1))
@@ -372,10 +374,13 @@ class DINOXHead(nn.Module):
                 torch.cuda.empty_cache()
                 num_fg += num_fg_img
 
-                # QFL targets: one-hot * IoU (same format, but loss uses QFL not BCE)
-                cls_target = F.one_hot(
-                    gt_matched_classes.to(torch.int64), self.num_classes
-                ) * pred_ious_this_matching.unsqueeze(-1)
+                # QFL targets for ALL anchors: (label_index, iou_score)
+                # Background anchors get label=-1, score=0 (handled by QFL)
+                cls_label = outputs.new_full((total_num_anchors,), -1, dtype=torch.long)
+                cls_score = outputs.new_zeros((total_num_anchors,))
+                cls_label[fg_mask] = gt_matched_classes.to(torch.long)
+                cls_score[fg_mask] = pred_ious_this_matching
+
                 obj_target = fg_mask.unsqueeze(-1)
                 reg_target = gt_bboxes_per_image[matched_gt_inds]
                 iou_weight = pred_ious_this_matching
@@ -388,7 +393,8 @@ class DINOXHead(nn.Module):
                         y_shifts=y_shifts[0][fg_mask],
                     )
 
-            cls_targets.append(cls_target)
+            cls_labels.append(cls_label)
+            cls_scores.append(cls_score)
             reg_targets.append(reg_target)
             obj_targets.append(obj_target.to(dtype))
             fg_masks.append(fg_mask)
@@ -396,7 +402,8 @@ class DINOXHead(nn.Module):
             if self.use_l1:
                 l1_targets.append(l1_target)
 
-        cls_targets = torch.cat(cls_targets, 0)
+        cls_labels = torch.cat(cls_labels, 0)   # (B*N,) with -1 for background
+        cls_scores = torch.cat(cls_scores, 0)   # (B*N,) IoU scores (0 for bg)
         reg_targets = torch.cat(reg_targets, 0)
         obj_targets = torch.cat(obj_targets, 0)
         fg_masks = torch.cat(fg_masks, 0)
@@ -414,11 +421,12 @@ class DINOXHead(nn.Module):
             self.bcewithlog_loss(obj_preds.view(-1, 1), obj_targets)
         ).sum() / num_fg
 
-        # QualityFocalLoss replaces plain BCE for classification
-        loss_cls = (
-            self.qfl_loss(
-                cls_preds.view(-1, self.num_classes)[fg_masks], cls_targets
-            )
+        # QualityFocalLoss on ALL anchors (fg + bg), matching RTMDet/mmyolo.
+        # Background anchors get BCE(logit, 0) * sigmoid^beta suppression.
+        # Foreground anchors get BCE(logit, IoU) * |IoU - sigmoid|^beta.
+        all_cls_preds = cls_preds.view(-1, self.num_classes)
+        loss_cls = self._quality_focal_loss(
+            all_cls_preds, cls_labels, cls_scores, self.qfl_beta,
         ).sum() / num_fg
 
         if self.use_l1:
@@ -439,6 +447,50 @@ class DINOXHead(nn.Module):
             loss_l1,
             num_fg / max(num_gts, 1),
         )
+
+    @staticmethod
+    def _quality_focal_loss(
+        pred: torch.Tensor,
+        labels: torch.Tensor,
+        scores: torch.Tensor,
+        beta: float = 2.0,
+    ) -> torch.Tensor:
+        """QFL on all anchors matching mmyolo/RTMDet formulation.
+
+        1. All anchors get background loss: BCE(logit, 0) * sigmoid^beta
+        2. Foreground anchors (label >= 0) get overwritten with:
+           BCE(logit[label], IoU) * |IoU - sigmoid(logit[label])|^beta
+
+        Args:
+            pred: Class logits ``(N, C)``.
+            labels: Per-anchor class index ``(N,)``, -1 for background.
+            scores: Per-anchor IoU quality score ``(N,)``, 0 for background.
+            beta: Focal modulation exponent.
+
+        Returns:
+            Per-anchor loss ``(N,)`` summed over classes.
+        """
+        pred_sigmoid = pred.sigmoid()
+        # Step 1: background loss for all anchors, all classes
+        zerolabel = pred.new_zeros(pred.shape)
+        loss = F.binary_cross_entropy_with_logits(
+            pred, zerolabel, reduction="none",
+        ) * pred_sigmoid.pow(beta)
+
+        # Step 2: overwrite foreground positions with soft QFL
+        pos_mask = labels >= 0
+        if pos_mask.any():
+            pos_inds = pos_mask.nonzero(as_tuple=False).squeeze(1)
+            pos_labels = labels[pos_inds]
+            pos_scores = scores[pos_inds]
+
+            scale = (pos_scores - pred_sigmoid[pos_inds, pos_labels]).abs().pow(beta)
+            loss[pos_inds, pos_labels] = F.binary_cross_entropy_with_logits(
+                pred[pos_inds, pos_labels], pos_scores, reduction="none",
+            ) * scale
+
+        # Sum over classes -> per-anchor scalar
+        return loss.sum(dim=-1)
 
     def get_l1_target(self, l1_target, gt, stride, x_shifts, y_shifts, eps=1e-8):
         l1_target[:, 0] = gt[:, 0] / stride - x_shifts
@@ -500,35 +552,33 @@ class DINOXHead(nn.Module):
         if mode == "cpu":
             cls_preds_, obj_preds_ = cls_preds_.cpu(), obj_preds_.cpu()
 
-        # RTMDet soft classification cost: BCE(logits, Y_soft) * |Y_soft - P|^2
+        # RTMDet soft classification cost on GT class only (mmyolo parity).
+        # Cost is computed per (gt, anchor) pair using only the GT's class
+        # channel, not summed across all C classes.
         with torch.amp.autocast("cuda", enabled=False):
             cls_logits = cls_preds_.float()
             obj_logits = obj_preds_.float()
-
-            # Combine cls and obj scores for the soft target comparison
-            # Use logits directly for BCE_with_logits formulation
-            # RTMDet merges cls+obj into a single score via geometric mean
+            # Combined cls+obj score per class [num_anchors, num_classes]
             pred_scores = (cls_logits.sigmoid() * obj_logits.sigmoid()).sqrt()
-            # Clamp to [eps, 1-eps] for numerical stability with BCE
-            pred_scores = pred_scores.clamp(min=1e-6, max=1.0 - 1e-6)
 
-            # Soft targets: one_hot * IoU  [num_gt, num_anchors, num_classes]
-            soft_label = (
-                gt_cls_per_image.unsqueeze(1)  # [num_gt, 1, num_classes]
-                * pair_wise_ious.unsqueeze(-1)  # [num_gt, num_anchors, 1]
-            )
-            pred_scores_expanded = pred_scores.unsqueeze(0).expand(num_gt, -1, -1)
+            # Extract GT class channel for each GT: [num_gt, num_anchors]
+            gt_class_inds = gt_classes.long()  # [num_gt]
+            # pred_scores[:, gt_class] for each gt -> [num_gt, num_anchors]
+            pairwise_pred_scores = pred_scores[:, gt_class_inds].T  # [num_gt, num_anchors]
+            pairwise_pred_scores = pairwise_pred_scores.clamp(min=1e-6, max=1.0 - 1e-6)
 
-            # QFL-style cost: BCE(P, Y_soft) * |Y_soft - P|^2
-            scale_factor = (soft_label - pred_scores_expanded).abs().pow(2.0)
+            # Soft target = IoU for the GT class channel
+            soft_target = pair_wise_ious  # [num_gt, num_anchors]
+
+            scale_factor = (soft_target - pairwise_pred_scores).abs().pow(2.0)
             pair_wise_cls_loss = (
                 F.binary_cross_entropy(
-                    pred_scores_expanded,
-                    soft_label,
+                    pairwise_pred_scores,
+                    soft_target,
                     reduction="none",
                 ) * scale_factor
-            ).sum(-1)
-        del cls_logits, obj_logits, pred_scores, pred_scores_expanded, scale_factor
+            )
+        del cls_logits, obj_logits, pred_scores, pairwise_pred_scores, scale_factor
 
         cost = (
             pair_wise_cls_loss
