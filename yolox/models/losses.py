@@ -169,8 +169,11 @@ class DistributionFocalLoss(nn.Module):
         Returns:
             Per-sample loss ``(N,)`` when ``reduction="none"``.
         """
+        n_bins = pred.shape[-1]
+        # Clamp target to valid range [0, n_bins - 1) to prevent index overflow
+        target = target.clamp(min=0, max=n_bins - 1 - 0.01)
         dis_left = target.long()
-        dis_right = dis_left + 1
+        dis_right = (dis_left + 1).clamp(max=n_bins - 1)
         weight_left = dis_right.float() - target
         weight_right = target - dis_left.float()
         loss = (
