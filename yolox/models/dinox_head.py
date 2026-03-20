@@ -142,7 +142,7 @@ class DINOXHead(nn.Module):
         self.l1_loss = nn.L1Loss(reduction="none")
         self.bcewithlog_loss = nn.BCEWithLogitsLoss(reduction="none")
         self.qfl_loss = QualityFocalLoss(beta=qfl_beta, reduction="none")
-        self.iou_loss = IOUloss(reduction="none")
+        self.iou_loss = IOUloss(reduction="none", loss_type="giou")
         self.strides = strides
         self.grids = [torch.zeros(1)] * len(in_channels)
 
@@ -428,7 +428,7 @@ class DINOXHead(nn.Module):
         else:
             loss_l1 = 0.0
 
-        reg_weight = 5.0
+        reg_weight = 2.0  # RTMDet uses 2.0 (YOLOX used 5.0 with IoU^2 loss)
         loss = reg_weight * loss_iou + loss_obj + loss_cls + loss_l1
 
         return (
