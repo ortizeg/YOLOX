@@ -311,7 +311,7 @@ class DINOXHead(nn.Module):
             num_gts += num_gt
             if num_gt == 0:
                 cls_label = outputs.new_full((total_num_anchors,), -1, dtype=torch.long)
-                cls_score = outputs.new_zeros((total_num_anchors,))
+                cls_score = torch.zeros(total_num_anchors, device=outputs.device, dtype=torch.float32)
                 reg_target = outputs.new_zeros((0, 4))
                 l1_target = outputs.new_zeros((0, 4))
                 obj_target = outputs.new_zeros((total_num_anchors, 1))
@@ -377,7 +377,7 @@ class DINOXHead(nn.Module):
                 # QFL targets for ALL anchors: (label_index, iou_score)
                 # Background anchors get label=-1, score=0 (handled by QFL)
                 cls_label = outputs.new_full((total_num_anchors,), -1, dtype=torch.long)
-                cls_score = outputs.new_zeros((total_num_anchors,))
+                cls_score = torch.zeros(total_num_anchors, device=outputs.device, dtype=torch.float32)
                 cls_label[fg_mask] = gt_matched_classes.to(torch.long)
                 cls_score[fg_mask] = pred_ious_this_matching
 
