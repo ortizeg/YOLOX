@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding:utf-8 -*-
 # Copyright (c) Megvii Inc. All rights reserved.
-# DINO-X Head: YOLOX head with RTMDet-style soft label assignment and QFL.
+# DINO-X Head: RTMDet-style head for YOLOX — no objectness branch.
 
 from __future__ import annotations
 
@@ -12,20 +12,26 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from yolox.utils import bboxes_iou, cxcywh2xyxy, meshgrid, visualize_assign
+from yolox.utils import bboxes_iou, meshgrid
 
 from .losses import IOUloss, QualityFocalLoss
 from .network_blocks import BaseConv, DWConv
 
 
 class DINOXHead(nn.Module):
-    """YOLOX detection head with RTMDet-style improvements.
+    """RTMDet-style detection head for YOLOX backbone.
 
-    Differences from YOLOXHead:
-    1. Soft classification cost in assignment: BCE(logits, Y_soft) * |Y_soft - P|^2
-    2. QualityFocalLoss for training cls loss (replaces plain BCE on soft targets)
-    3. Soft center prior: exponential decay instead of hard binary mask
-    4. IoU-weighted regression loss
+    Key difference from YOLOXHead: **no objectness branch**. Classification
+    directly predicts joint class+quality scores, trained with QFL. This
+    matches RTMDet's architecture where cls score alone determines detection
+    confidence.
+
+    Changes from YOLOXHead:
+    1. No obj_preds / loss_obj — cls handles objectness via QFL
+    2. QFL on ALL anchors (bg suppression + fg soft targets)
+    3. Soft center prior with inside-GT-box filtering
+    4. GIoU loss with IoU-weighted regression
+    5. Assigner cost on GT class only (not all C classes)
     """
 
     def __init__(
@@ -56,7 +62,6 @@ class DINOXHead(nn.Module):
         self.reg_convs = nn.ModuleList()
         self.cls_preds = nn.ModuleList()
         self.reg_preds = nn.ModuleList()
-        self.obj_preds = nn.ModuleList()
         self.stems = nn.ModuleList()
         Conv = DWConv if depthwise else BaseConv
 
@@ -65,94 +70,40 @@ class DINOXHead(nn.Module):
                 BaseConv(
                     in_channels=int(in_channels[i] * width),
                     out_channels=int(256 * width),
-                    ksize=1,
-                    stride=1,
-                    act=act,
+                    ksize=1, stride=1, act=act,
                 )
             )
             self.cls_convs.append(
                 nn.Sequential(
-                    *[
-                        Conv(
-                            in_channels=int(256 * width),
-                            out_channels=int(256 * width),
-                            ksize=3,
-                            stride=1,
-                            act=act,
-                        ),
-                        Conv(
-                            in_channels=int(256 * width),
-                            out_channels=int(256 * width),
-                            ksize=3,
-                            stride=1,
-                            act=act,
-                        ),
-                    ]
+                    Conv(in_channels=int(256 * width), out_channels=int(256 * width),
+                         ksize=3, stride=1, act=act),
+                    Conv(in_channels=int(256 * width), out_channels=int(256 * width),
+                         ksize=3, stride=1, act=act),
                 )
             )
             self.reg_convs.append(
                 nn.Sequential(
-                    *[
-                        Conv(
-                            in_channels=int(256 * width),
-                            out_channels=int(256 * width),
-                            ksize=3,
-                            stride=1,
-                            act=act,
-                        ),
-                        Conv(
-                            in_channels=int(256 * width),
-                            out_channels=int(256 * width),
-                            ksize=3,
-                            stride=1,
-                            act=act,
-                        ),
-                    ]
+                    Conv(in_channels=int(256 * width), out_channels=int(256 * width),
+                         ksize=3, stride=1, act=act),
+                    Conv(in_channels=int(256 * width), out_channels=int(256 * width),
+                         ksize=3, stride=1, act=act),
                 )
             )
             self.cls_preds.append(
-                nn.Conv2d(
-                    in_channels=int(256 * width),
-                    out_channels=self.num_classes,
-                    kernel_size=1,
-                    stride=1,
-                    padding=0,
-                )
+                nn.Conv2d(int(256 * width), self.num_classes, 1, 1, 0)
             )
             self.reg_preds.append(
-                nn.Conv2d(
-                    in_channels=int(256 * width),
-                    out_channels=4,
-                    kernel_size=1,
-                    stride=1,
-                    padding=0,
-                )
-            )
-            self.obj_preds.append(
-                nn.Conv2d(
-                    in_channels=int(256 * width),
-                    out_channels=1,
-                    kernel_size=1,
-                    stride=1,
-                    padding=0,
-                )
+                nn.Conv2d(int(256 * width), 4, 1, 1, 0)
             )
 
         self.use_l1 = False
         self.l1_loss = nn.L1Loss(reduction="none")
-        self.bcewithlog_loss = nn.BCEWithLogitsLoss(reduction="none")
-        self.qfl_loss = QualityFocalLoss(beta=qfl_beta, reduction="none")
         self.iou_loss = IOUloss(reduction="none", loss_type="giou")
         self.strides = strides
         self.grids = [torch.zeros(1)] * len(in_channels)
 
     def initialize_biases(self, prior_prob: float) -> None:
         for conv in self.cls_preds:
-            b = conv.bias.view(1, -1)
-            b.data.fill_(-math.log((1 - prior_prob) / prior_prob))
-            conv.bias = torch.nn.Parameter(b.view(-1), requires_grad=True)
-
-        for conv in self.obj_preds:
             b = conv.bias.view(1, -1)
             b.data.fill_(-math.log((1 - prior_prob) / prior_prob))
             conv.bias = torch.nn.Parameter(b.view(-1), requires_grad=True)
@@ -168,18 +119,16 @@ class DINOXHead(nn.Module):
             zip(self.cls_convs, self.reg_convs, self.strides, xin)
         ):
             x = self.stems[k](x)
-            cls_x = x
-            reg_x = x
 
-            cls_feat = cls_conv(cls_x)
+            cls_feat = cls_conv(x)
             cls_output = self.cls_preds[k](cls_feat)
 
-            reg_feat = reg_conv(reg_x)
+            reg_feat = reg_conv(x)
             reg_output = self.reg_preds[k](reg_feat)
-            obj_output = self.obj_preds[k](reg_feat)
 
             if self.training:
-                output = torch.cat([reg_output, obj_output, cls_output], 1)
+                # Training: [reg(4), cls(C)] — no obj channel
+                output = torch.cat([reg_output, cls_output], 1)
                 output, grid = self.get_output_and_grid(
                     output, k, stride_this_level, xin[0].type()
                 )
@@ -200,28 +149,27 @@ class DINOXHead(nn.Module):
                         batch_size, -1, 4
                     )
                     origin_preds.append(reg_output.clone())
-
             else:
+                # Inference: [reg(4), obj=1.0(1), cls_sigmoid(C)]
+                # Insert constant obj=1.0 for compatibility with postprocess
+                batch_size = reg_output.shape[0]
+                hsize, wsize = reg_output.shape[-2:]
+                ones = torch.ones(batch_size, 1, hsize, wsize,
+                                  device=reg_output.device, dtype=reg_output.dtype)
                 output = torch.cat(
-                    [reg_output, obj_output.sigmoid(), cls_output.sigmoid()], 1
+                    [reg_output, ones, cls_output.sigmoid()], 1
                 )
 
             outputs.append(output)
 
         if self.training:
             return self.get_losses(
-                imgs,
-                x_shifts,
-                y_shifts,
-                expanded_strides,
-                labels,
-                torch.cat(outputs, 1),
-                origin_preds,
+                imgs, x_shifts, y_shifts, expanded_strides,
+                labels, torch.cat(outputs, 1), origin_preds,
                 dtype=xin[0].dtype,
             )
         else:
             self.hw = [x.shape[-2:] for x in outputs]
-            # [batch, n_anchors_all, 85]
             outputs = torch.cat(
                 [x.flatten(start_dim=2) for x in outputs], dim=2
             ).permute(0, 2, 1)
@@ -234,7 +182,7 @@ class DINOXHead(nn.Module):
         grid = self.grids[k]
 
         batch_size = output.shape[0]
-        n_ch = 5 + self.num_classes
+        n_ch = 4 + self.num_classes  # no obj channel in training
         hsize, wsize = output.shape[-2:]
         if grid.shape[2:4] != output.shape[2:4]:
             yv, xv = meshgrid([torch.arange(hsize), torch.arange(wsize)])
@@ -266,42 +214,32 @@ class DINOXHead(nn.Module):
         outputs = torch.cat([
             (outputs[..., 0:2] + grids) * strides,
             torch.exp(outputs[..., 2:4]) * strides,
-            outputs[..., 4:]
+            outputs[..., 4:]  # obj=1.0 + cls already applied in forward
         ], dim=-1)
         return outputs
 
     def get_losses(
-        self,
-        imgs,
-        x_shifts,
-        y_shifts,
-        expanded_strides,
-        labels,
-        outputs,
-        origin_preds,
-        dtype,
+        self, imgs, x_shifts, y_shifts, expanded_strides,
+        labels, outputs, origin_preds, dtype,
     ):
-        bbox_preds = outputs[:, :, :4]  # [batch, n_anchors_all, 4]
-        obj_preds = outputs[:, :, 4:5]  # [batch, n_anchors_all, 1]
-        cls_preds = outputs[:, :, 5:]  # [batch, n_anchors_all, n_cls]
+        bbox_preds = outputs[:, :, :4]       # [batch, n_anchors, 4]
+        cls_preds = outputs[:, :, 4:]        # [batch, n_anchors, C] — no obj column
 
-        # calculate targets
-        nlabel = (labels.sum(dim=2) > 0).sum(dim=1)  # number of objects
+        nlabel = (labels.sum(dim=2) > 0).sum(dim=1)
 
         total_num_anchors = outputs.shape[1]
-        x_shifts = torch.cat(x_shifts, 1)  # [1, n_anchors_all]
-        y_shifts = torch.cat(y_shifts, 1)  # [1, n_anchors_all]
+        x_shifts = torch.cat(x_shifts, 1)
+        y_shifts = torch.cat(y_shifts, 1)
         expanded_strides = torch.cat(expanded_strides, 1)
         if self.use_l1:
             origin_preds = torch.cat(origin_preds, 1)
 
-        cls_labels = []   # per-anchor class index (-1 for background)
-        cls_scores = []   # per-anchor IoU quality score (0 for background)
+        cls_labels = []
+        cls_scores = []
         reg_targets = []
         l1_targets = []
-        obj_targets = []
         fg_masks = []
-        iou_weights = []  # IoU weights for regression loss
+        iou_weights = []
 
         num_fg = 0.0
         num_gts = 0.0
@@ -314,7 +252,6 @@ class DINOXHead(nn.Module):
                 cls_score = torch.zeros(total_num_anchors, device=outputs.device, dtype=torch.float32)
                 reg_target = outputs.new_zeros((0, 4))
                 l1_target = outputs.new_zeros((0, 4))
-                obj_target = outputs.new_zeros((total_num_anchors, 1))
                 fg_mask = outputs.new_zeros(total_num_anchors).bool()
                 iou_weight = outputs.new_zeros((0,))
             else:
@@ -324,64 +261,35 @@ class DINOXHead(nn.Module):
 
                 try:
                     (
-                        gt_matched_classes,
-                        fg_mask,
-                        pred_ious_this_matching,
-                        matched_gt_inds,
-                        num_fg_img,
-                    ) = self.get_assignments(  # noqa
-                        batch_idx,
-                        num_gt,
-                        gt_bboxes_per_image,
-                        gt_classes,
-                        bboxes_preds_per_image,
-                        expanded_strides,
-                        x_shifts,
-                        y_shifts,
-                        cls_preds,
-                        obj_preds,
+                        gt_matched_classes, fg_mask,
+                        pred_ious_this_matching, matched_gt_inds, num_fg_img,
+                    ) = self.get_assignments(
+                        batch_idx, num_gt, gt_bboxes_per_image, gt_classes,
+                        bboxes_preds_per_image, expanded_strides,
+                        x_shifts, y_shifts, cls_preds,
                     )
                 except RuntimeError as e:
                     if "CUDA out of memory. " not in str(e):
                         raise
-
-                    logger.error(
-                        "OOM RuntimeError is raised due to the huge memory cost during label assignment. \
-                           CPU mode is applied in this batch. If you want to avoid this issue, \
-                           try to reduce the batch size or image size."
-                    )
+                    logger.error("OOM in label assignment, falling back to CPU")
                     torch.cuda.empty_cache()
                     (
-                        gt_matched_classes,
-                        fg_mask,
-                        pred_ious_this_matching,
-                        matched_gt_inds,
-                        num_fg_img,
-                    ) = self.get_assignments(  # noqa
-                        batch_idx,
-                        num_gt,
-                        gt_bboxes_per_image,
-                        gt_classes,
-                        bboxes_preds_per_image,
-                        expanded_strides,
-                        x_shifts,
-                        y_shifts,
-                        cls_preds,
-                        obj_preds,
-                        "cpu",
+                        gt_matched_classes, fg_mask,
+                        pred_ious_this_matching, matched_gt_inds, num_fg_img,
+                    ) = self.get_assignments(
+                        batch_idx, num_gt, gt_bboxes_per_image, gt_classes,
+                        bboxes_preds_per_image, expanded_strides,
+                        x_shifts, y_shifts, cls_preds, "cpu",
                     )
 
                 torch.cuda.empty_cache()
                 num_fg += num_fg_img
 
-                # QFL targets for ALL anchors: (label_index, iou_score)
-                # Background anchors get label=-1, score=0 (handled by QFL)
                 cls_label = outputs.new_full((total_num_anchors,), -1, dtype=torch.long)
                 cls_score = torch.zeros(total_num_anchors, device=outputs.device, dtype=torch.float32)
                 cls_label[fg_mask] = gt_matched_classes.to(torch.long)
                 cls_score[fg_mask] = pred_ious_this_matching
 
-                obj_target = fg_mask.unsqueeze(-1)
                 reg_target = gt_bboxes_per_image[matched_gt_inds]
                 iou_weight = pred_ious_this_matching
                 if self.use_l1:
@@ -396,16 +304,14 @@ class DINOXHead(nn.Module):
             cls_labels.append(cls_label)
             cls_scores.append(cls_score)
             reg_targets.append(reg_target)
-            obj_targets.append(obj_target.to(dtype))
             fg_masks.append(fg_mask)
             iou_weights.append(iou_weight)
             if self.use_l1:
                 l1_targets.append(l1_target)
 
-        cls_labels = torch.cat(cls_labels, 0)   # (B*N,) with -1 for background
-        cls_scores = torch.cat(cls_scores, 0)   # (B*N,) IoU scores (0 for bg)
+        cls_labels = torch.cat(cls_labels, 0)
+        cls_scores = torch.cat(cls_scores, 0)
         reg_targets = torch.cat(reg_targets, 0)
-        obj_targets = torch.cat(obj_targets, 0)
         fg_masks = torch.cat(fg_masks, 0)
         iou_weights = torch.cat(iou_weights, 0)
         if self.use_l1:
@@ -413,17 +319,11 @@ class DINOXHead(nn.Module):
 
         num_fg = max(num_fg, 1)
 
-        # IoU-weighted regression loss (RTMDet style)
+        # GIoU regression loss, IoU-weighted
         raw_iou_loss = self.iou_loss(bbox_preds.view(-1, 4)[fg_masks], reg_targets)
         loss_iou = (raw_iou_loss * iou_weights).sum() / num_fg
 
-        loss_obj = (
-            self.bcewithlog_loss(obj_preds.view(-1, 1), obj_targets)
-        ).sum() / num_fg
-
-        # QualityFocalLoss on ALL anchors (fg + bg), matching RTMDet/mmyolo.
-        # Background anchors get BCE(logit, 0) * sigmoid^beta suppression.
-        # Foreground anchors get BCE(logit, IoU) * |IoU - sigmoid|^beta.
+        # QFL on ALL anchors — no separate obj loss
         all_cls_preds = cls_preds.view(-1, self.num_classes)
         loss_cls = self._quality_focal_loss(
             all_cls_preds, cls_labels, cls_scores, self.qfl_beta,
@@ -436,13 +336,14 @@ class DINOXHead(nn.Module):
         else:
             loss_l1 = 0.0
 
-        reg_weight = 2.0  # RTMDet uses 2.0 (YOLOX used 5.0 with IoU^2 loss)
-        loss = reg_weight * loss_iou + loss_obj + loss_cls + loss_l1
+        reg_weight = 2.0
+        loss = reg_weight * loss_iou + loss_cls + loss_l1
 
+        # Return 6 values for compatibility (loss_obj = 0)
         return (
             loss,
             reg_weight * loss_iou,
-            loss_obj,
+            torch.tensor(0.0, device=loss.device),  # no obj loss
             loss_cls,
             loss_l1,
             num_fg / max(num_gts, 1),
@@ -455,31 +356,14 @@ class DINOXHead(nn.Module):
         scores: torch.Tensor,
         beta: float = 2.0,
     ) -> torch.Tensor:
-        """QFL on all anchors matching mmyolo/RTMDet formulation.
-
-        1. All anchors get background loss: BCE(logit, 0) * sigmoid^beta
-        2. Foreground anchors (label >= 0) get overwritten with:
-           BCE(logit[label], IoU) * |IoU - sigmoid(logit[label])|^beta
-
-        Args:
-            pred: Class logits ``(N, C)``.
-            labels: Per-anchor class index ``(N,)``, -1 for background.
-            scores: Per-anchor IoU quality score ``(N,)``, 0 for background.
-            beta: Focal modulation exponent.
-
-        Returns:
-            Per-anchor loss ``(N,)`` summed over classes.
-        """
-        # Compute in float32 for numerical stability (AMP sends half-precision)
+        """QFL on all anchors matching mmyolo/RTMDet formulation."""
         pred = pred.float()
         pred_sigmoid = pred.sigmoid()
-        # Step 1: background loss for all anchors, all classes
         zerolabel = pred.new_zeros(pred.shape)
         loss = F.binary_cross_entropy_with_logits(
             pred, zerolabel, reduction="none",
         ) * pred_sigmoid.pow(beta)
 
-        # Step 2: overwrite foreground positions with soft QFL
         pos_mask = labels >= 0
         if pos_mask.any():
             pos_inds = pos_mask.nonzero(as_tuple=False).squeeze(1)
@@ -491,7 +375,6 @@ class DINOXHead(nn.Module):
                 pred[pos_inds, pos_labels], pos_scores, reduction="none",
             ) * scale
 
-        # Sum over classes -> per-anchor scalar
         return loss.sum(dim=-1)
 
     def get_l1_target(self, l1_target, gt, stride, x_shifts, y_shifts, eps=1e-8):
@@ -503,18 +386,9 @@ class DINOXHead(nn.Module):
 
     @torch.no_grad()
     def get_assignments(
-        self,
-        batch_idx,
-        num_gt,
-        gt_bboxes_per_image,
-        gt_classes,
-        bboxes_preds_per_image,
-        expanded_strides,
-        x_shifts,
-        y_shifts,
-        cls_preds,
-        obj_preds,
-        mode="gpu",
+        self, batch_idx, num_gt, gt_bboxes_per_image, gt_classes,
+        bboxes_preds_per_image, expanded_strides, x_shifts, y_shifts,
+        cls_preds, mode="gpu",
     ):
         if mode == "cpu":
             logger.warning("Using CPU for the current batch due to memory constraints")
@@ -525,17 +399,12 @@ class DINOXHead(nn.Module):
             x_shifts = x_shifts.cpu()
             y_shifts = y_shifts.cpu()
 
-        # Soft center prior (RTMDet) — keeps all anchors but penalizes distant ones
         fg_mask, soft_center_prior = self.get_geometry_constraint(
-            gt_bboxes_per_image,
-            expanded_strides,
-            x_shifts,
-            y_shifts,
+            gt_bboxes_per_image, expanded_strides, x_shifts, y_shifts,
         )
 
         bboxes_preds_per_image = bboxes_preds_per_image[fg_mask]
         cls_preds_ = cls_preds[batch_idx][fg_mask]
-        obj_preds_ = obj_preds[batch_idx][fg_mask]
         num_in_boxes_anchor = bboxes_preds_per_image.shape[0]
 
         if mode == "cpu":
@@ -545,41 +414,29 @@ class DINOXHead(nn.Module):
         pair_wise_ious = bboxes_iou(gt_bboxes_per_image, bboxes_preds_per_image, False)
         pair_wise_ious = torch.nan_to_num(pair_wise_ious, nan=0.0).clamp(min=0.0, max=1.0)
 
-        gt_cls_per_image = (
-            F.one_hot(gt_classes.to(torch.int64), self.num_classes)
-            .float()
-        )
         pair_wise_ious_loss = -torch.log(pair_wise_ious + 1e-8)
 
         if mode == "cpu":
-            cls_preds_, obj_preds_ = cls_preds_.cpu(), obj_preds_.cpu()
+            cls_preds_ = cls_preds_.cpu()
 
-        # RTMDet soft classification cost on GT class only (mmyolo parity).
-        # Cost is computed per (gt, anchor) pair using only the GT's class
-        # channel, not summed across all C classes.
+        # RTMDet cost: GT class only, raw cls logits (no obj branch)
         with torch.amp.autocast("cuda", enabled=False):
             cls_logits = cls_preds_.float()
-            obj_logits = obj_preds_.float()
-            # Combined cls+obj score per class [num_anchors, num_classes]
-            pred_scores = (cls_logits.sigmoid() * obj_logits.sigmoid()).sqrt()
+            pred_scores = cls_logits.sigmoid()
 
-            # Extract GT class channel for each GT: [num_gt, num_anchors]
             gt_class_inds = gt_classes.long().clamp(0, self.num_classes - 1)
-            pairwise_pred_scores = pred_scores[:, gt_class_inds].T  # [num_gt, num_anchors]
+            pairwise_pred_scores = pred_scores[:, gt_class_inds].T
             pairwise_pred_scores = pairwise_pred_scores.clamp(min=1e-6, max=1.0 - 1e-6)
 
-            # Soft target = IoU for the GT class channel
-            soft_target = pair_wise_ious  # [num_gt, num_anchors]
+            soft_target = pair_wise_ious
 
             scale_factor = (soft_target - pairwise_pred_scores).abs().pow(2.0)
             pair_wise_cls_loss = (
                 F.binary_cross_entropy(
-                    pairwise_pred_scores,
-                    soft_target,
-                    reduction="none",
+                    pairwise_pred_scores, soft_target, reduction="none",
                 ) * scale_factor
             )
-        del cls_logits, obj_logits, pred_scores, pairwise_pred_scores, scale_factor
+        del cls_logits, pred_scores, pairwise_pred_scores, scale_factor
 
         cost = (
             pair_wise_cls_loss
@@ -588,10 +445,7 @@ class DINOXHead(nn.Module):
         )
 
         (
-            num_fg,
-            gt_matched_classes,
-            pred_ious_this_matching,
-            matched_gt_inds,
+            num_fg, gt_matched_classes, pred_ious_this_matching, matched_gt_inds,
         ) = self.simota_matching(cost, pair_wise_ious, gt_classes, num_gt, fg_mask)
         del pair_wise_cls_loss, cost, pair_wise_ious, pair_wise_ious_loss
 
@@ -601,60 +455,31 @@ class DINOXHead(nn.Module):
             pred_ious_this_matching = pred_ious_this_matching.cuda()
             matched_gt_inds = matched_gt_inds.cuda()
 
-        return (
-            gt_matched_classes,
-            fg_mask,
-            pred_ious_this_matching,
-            matched_gt_inds,
-            num_fg,
-        )
+        return (gt_matched_classes, fg_mask, pred_ious_this_matching, matched_gt_inds, num_fg)
 
     def get_geometry_constraint(
-        self,
-        gt_bboxes_per_image: torch.Tensor,
+        self, gt_bboxes_per_image: torch.Tensor,
         expanded_strides: torch.Tensor,
-        x_shifts: torch.Tensor,
-        y_shifts: torch.Tensor,
+        x_shifts: torch.Tensor, y_shifts: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """RTMDet-style soft center prior with inside-GT-box pre-filtering.
-
-        Pre-filters anchors to those geometrically inside at least one GT box
-        (matching mmdetection's ``DynamicSoftLabelAssigner``), then applies a
-        continuous exponential cost ``10^(distance/stride - radius)`` that
-        penalizes anchors far from GT centers.
-
-        Args:
-            gt_bboxes_per_image: GT boxes ``[num_gt, 4]`` in cxcywh format.
-            expanded_strides: Per-anchor strides ``[1, n_anchors]``.
-            x_shifts: Grid x-coordinates ``[1, n_anchors]``.
-            y_shifts: Grid y-coordinates ``[1, n_anchors]``.
-
-        Returns:
-            anchor_filter: Boolean mask ``[n_anchors]`` of candidate anchors.
-            soft_center_prior: Continuous cost ``[num_gt, num_filtered]``.
-        """
+        """RTMDet-style soft center prior with inside-GT-box pre-filtering."""
         expanded_strides_per_image = expanded_strides[0]
-        x_centers = (x_shifts[0] + 0.5) * expanded_strides_per_image  # [n_anchors]
-        y_centers = (y_shifts[0] + 0.5) * expanded_strides_per_image  # [n_anchors]
+        x_centers = (x_shifts[0] + 0.5) * expanded_strides_per_image
+        y_centers = (y_shifts[0] + 0.5) * expanded_strides_per_image
 
-        # GT boxes: cxcywh -> xyxy edges
-        gt_x1 = gt_bboxes_per_image[:, 0:1] - gt_bboxes_per_image[:, 2:3] / 2  # [num_gt, 1]
+        gt_x1 = gt_bboxes_per_image[:, 0:1] - gt_bboxes_per_image[:, 2:3] / 2
         gt_y1 = gt_bboxes_per_image[:, 1:2] - gt_bboxes_per_image[:, 3:4] / 2
         gt_x2 = gt_bboxes_per_image[:, 0:1] + gt_bboxes_per_image[:, 2:3] / 2
         gt_y2 = gt_bboxes_per_image[:, 1:2] + gt_bboxes_per_image[:, 3:4] / 2
 
-        # Inside-GT-box check: anchor center must be inside at least one GT box
-        # [num_gt, n_anchors]
         left = x_centers.unsqueeze(0) - gt_x1
         top = y_centers.unsqueeze(0) - gt_y1
         right = gt_x2 - x_centers.unsqueeze(0)
         bottom = gt_y2 - y_centers.unsqueeze(0)
-        deltas = torch.stack([left, top, right, bottom], dim=-1)  # [num_gt, n_anchors, 4]
-        is_in_gts = deltas.min(dim=-1).values > 0  # [num_gt, n_anchors]
-        anchor_filter = is_in_gts.any(dim=0)  # [n_anchors]
+        deltas = torch.stack([left, top, right, bottom], dim=-1)
+        is_in_gts = deltas.min(dim=-1).values > 0
+        anchor_filter = is_in_gts.any(dim=0)
 
-        # Fallback: if no anchor is inside any GT box (tiny objects), use
-        # nearest anchors by distance to ensure at least some candidates
         if not anchor_filter.any():
             gt_cx = gt_bboxes_per_image[:, 0:1]
             gt_cy = gt_bboxes_per_image[:, 1:2]
@@ -663,11 +488,9 @@ class DINOXHead(nn.Module):
                 + (y_centers.unsqueeze(0) - gt_cy) ** 2
             )
             min_dist_per_anchor = all_dist.min(dim=0).values
-            # Keep the closest anchors (within 3 stride units of nearest GT)
             threshold = expanded_strides_per_image * self.soft_center_radius
             anchor_filter = min_dist_per_anchor < threshold
 
-        # Soft center prior: 10^(distance/stride - radius)
         gt_cx = gt_bboxes_per_image[:, 0:1]
         gt_cy = gt_bboxes_per_image[:, 1:2]
         distance = torch.sqrt(
@@ -680,16 +503,12 @@ class DINOXHead(nn.Module):
         return anchor_filter, soft_center_prior
 
     def simota_matching(
-        self,
-        cost: torch.Tensor,
-        pair_wise_ious: torch.Tensor,
-        gt_classes: torch.Tensor,
-        num_gt: int,
-        fg_mask: torch.Tensor,
+        self, cost: torch.Tensor, pair_wise_ious: torch.Tensor,
+        gt_classes: torch.Tensor, num_gt: int, fg_mask: torch.Tensor,
     ) -> tuple[int, torch.Tensor, torch.Tensor, torch.Tensor]:
         matching_matrix = torch.zeros_like(cost, dtype=torch.uint8)
 
-        n_candidate_k = min(13, pair_wise_ious.size(1))  # RTMDet uses 13 vs YOLOX's 10
+        n_candidate_k = min(13, pair_wise_ious.size(1))
         topk_ious, _ = torch.topk(pair_wise_ious, n_candidate_k, dim=1)
         dynamic_ks = torch.clamp(topk_ious.sum(1).int(), min=1)
         for gt_idx in range(num_gt):
@@ -701,7 +520,6 @@ class DINOXHead(nn.Module):
         del topk_ious, dynamic_ks, pos_idx
 
         anchor_matching_gt = matching_matrix.sum(0)
-        # deal with the case that one anchor matches multiple ground-truths
         if anchor_matching_gt.max() > 1:
             multiple_match_mask = anchor_matching_gt > 1
             _, cost_argmin = torch.min(cost[:, multiple_match_mask], dim=0)

@@ -332,8 +332,8 @@ class TestSoftClsCost:
 # ------------------------------------------------------------------ #
 
 class TestArchitectureCompat:
-    def test_same_param_count_as_yolox(self) -> None:
-        """DINOXHead architecture is identical to YOLOXHead (same conv layers)."""
+    def test_fewer_params_than_yolox(self) -> None:
+        """DINOXHead has no obj branch, so fewer params than YOLOXHead."""
         from yolox.models.yolo_head import YOLOXHead
 
         yolox = YOLOXHead(num_classes=80, width=0.50)
@@ -341,8 +341,8 @@ class TestArchitectureCompat:
 
         yolox_params = sum(p.numel() for p in yolox.parameters())
         dinox_params = sum(p.numel() for p in dinox.parameters())
-        assert yolox_params == dinox_params, \
-            f"YOLOX ({yolox_params}) and DINOX ({dinox_params}) should have same param count"
+        assert dinox_params < yolox_params, \
+            f"DINOX ({dinox_params}) should have fewer params than YOLOX ({yolox_params})"
 
     def test_depthwise_variant(self) -> None:
         """Depthwise DINOXHead should work and have fewer params."""
