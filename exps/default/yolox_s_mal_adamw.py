@@ -34,7 +34,7 @@ class Exp(MyExp):
         # DEIM uses 1.5 for one-to-one detectors, but gamma>1 causes
         # cls_score^(1-gamma) to explode for small cls_scores in YOLOX's
         # one-to-many framework, clamping all matchability targets to 1.0
-        self.mal_gamma = 0.5
+        self.mal_gamma = 0.75
 
     def get_model(self):
         from yolox.models import YOLOX, YOLOPAFPN, YOLOXHeadMAL
