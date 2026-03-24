@@ -16,22 +16,23 @@ from .yolo_head import YOLOXHead
 class YOLOXHeadMAL(YOLOXHead):
     """YOLOXHead with Matchability-Aware Loss (MAL) for classification.
 
-    Adapts DEIM's Matchability-Aware Loss (arXiv 2412.04234) for YOLOX's
-    one-to-many detection framework. MAL reweights the classification loss
-    per positive anchor based on how well the prediction matches the GT:
+    Adapts DEIM's MAL (arXiv 2412.04234) for YOLOX. Instead of using IoU
+    as the soft classification target, MAL uses a matchability score that
+    combines localization AND classification quality:
 
-    - **matchability** = IoU^gamma * cls_score^(1-gamma)
-    - High matchability (good match): loss behaves like standard BCE
-    - Low matchability (poor match): gradient is amplified, teaching the
-      model to improve or suppress poorly-localized predictions
+        matchability = IoU^gamma * cls_score^(1 - gamma)
 
-    This sits ON TOP of YOLOX's existing SimOTA assignment and soft IoU
-    targets. The architecture is identical to YOLOXHead — same parameters,
-    same forward pass — only the classification loss weighting changes.
+    This replaces the classification TARGET (not the loss function):
+    - Standard YOLOX: cls_target = one_hot * IoU
+    - MAL:            cls_target = one_hot * matchability
+
+    The target is self-referential — it adapts during training based on
+    the model's current prediction quality. This teaches the model to
+    output calibrated confidence scores that reflect match quality.
 
     Args:
-        mal_gamma: Exponent controlling IoU vs cls_score balance in the
-            matchability score. Default ``1.5`` (DEIM paper).
+        mal_gamma: Controls IoU vs cls_score balance. Default ``1.5``
+            (DEIM default). Higher gamma → more weight on IoU quality.
     """
 
     def __init__(
@@ -76,7 +77,6 @@ class YOLOXHeadMAL(YOLOXHead):
         l1_targets = []
         obj_targets = []
         fg_masks = []
-        mal_weights = []  # per-positive MAL weights
 
         num_fg = 0.0
         num_gts = 0.0
@@ -90,7 +90,6 @@ class YOLOXHeadMAL(YOLOXHead):
                 l1_target = outputs.new_zeros((0, 4))
                 obj_target = outputs.new_zeros((total_num_anchors, 1))
                 fg_mask = outputs.new_zeros(total_num_anchors).bool()
-                mal_weight = outputs.new_zeros((0,))
             else:
                 gt_bboxes_per_image = labels[batch_idx, :num_gt, 1:5]
                 gt_classes = labels[batch_idx, :num_gt, 0]
@@ -122,26 +121,16 @@ class YOLOXHeadMAL(YOLOXHead):
                 torch.cuda.empty_cache()
                 num_fg += num_fg_img
 
-                # Standard YOLOX soft targets: one-hot * IoU
-                cls_target = F.one_hot(
-                    gt_matched_classes.to(torch.int64), self.num_classes
-                ) * pred_ious_this_matching.unsqueeze(-1)
-                obj_target = fg_mask.unsqueeze(-1)
-                reg_target = gt_bboxes_per_image[matched_gt_inds]
-
-                # Compute MAL weight for each positive anchor.
-                # matchability = IoU^gamma * cls_score^(1-gamma)
-                # Higher matchability = better match = lower amplification (closer to 1.0)
-                # Lower matchability = worse match = higher amplification
+                # MAL: compute matchability as the soft classification target
+                # matchability = IoU^gamma * cls_score^(1 - gamma)
                 with torch.no_grad():
-                    fg_cls_preds = cls_preds[batch_idx][fg_mask]  # [num_fg, C]
-                    fg_obj_preds = obj_preds[batch_idx][fg_mask]  # [num_fg, 1]
+                    fg_cls_preds = cls_preds[batch_idx][fg_mask]
+                    fg_obj_preds = obj_preds[batch_idx][fg_mask]
 
-                    # Get predicted class score for the matched GT class
                     cls_scores_fg = (
-                        fg_cls_preds.sigmoid() * fg_obj_preds.sigmoid()
+                        fg_cls_preds.float().sigmoid() * fg_obj_preds.float().sigmoid()
                     ).sqrt()
-                    # Extract score for the assigned GT class
+
                     gt_cls_inds = gt_matched_classes.long().clamp(0, self.num_classes - 1)
                     matched_cls_score = cls_scores_fg[
                         torch.arange(num_fg_img, device=cls_scores_fg.device), gt_cls_inds
@@ -149,18 +138,18 @@ class YOLOXHeadMAL(YOLOXHead):
 
                     iou_quality = pred_ious_this_matching.clamp(min=1e-6)
 
-                    # matchability = IoU^gamma * cls_score^(1 - gamma)
                     matchability = (
                         iou_quality.pow(self.mal_gamma)
                         * matched_cls_score.pow(1.0 - self.mal_gamma)
-                    )
+                    ).clamp(min=0.0, max=1.0)
 
-                    # MAL weight: amplify gradient for low-quality matches
-                    # weight = 1 / matchability (normalized so mean = 1)
-                    mal_w = 1.0 / matchability.clamp(min=1e-4)
-                    mal_w = mal_w / mal_w.mean().clamp(min=1e-6)  # normalize
+                # Use matchability as target instead of raw IoU
+                cls_target = F.one_hot(
+                    gt_matched_classes.to(torch.int64), self.num_classes
+                ) * matchability.unsqueeze(-1)
 
-                mal_weight = mal_w
+                obj_target = fg_mask.unsqueeze(-1)
+                reg_target = gt_bboxes_per_image[matched_gt_inds]
 
                 if self.use_l1:
                     l1_target = self.get_l1_target(
@@ -175,7 +164,6 @@ class YOLOXHeadMAL(YOLOXHead):
             reg_targets.append(reg_target)
             obj_targets.append(obj_target.to(dtype))
             fg_masks.append(fg_mask)
-            mal_weights.append(mal_weight)
             if self.use_l1:
                 l1_targets.append(l1_target)
 
@@ -183,7 +171,6 @@ class YOLOXHeadMAL(YOLOXHead):
         reg_targets = torch.cat(reg_targets, 0)
         obj_targets = torch.cat(obj_targets, 0)
         fg_masks = torch.cat(fg_masks, 0)
-        mal_weights = torch.cat(mal_weights, 0)
         if self.use_l1:
             l1_targets = torch.cat(l1_targets, 0)
 
@@ -197,13 +184,12 @@ class YOLOXHeadMAL(YOLOXHead):
             self.bcewithlog_loss(obj_preds.view(-1, 1), obj_targets)
         ).sum() / num_fg
 
-        # MAL-weighted classification loss
-        raw_cls_loss = self.bcewithlog_loss(
-            cls_preds.view(-1, self.num_classes)[fg_masks], cls_targets
-        )
-        # Weight each positive anchor's cls loss by its MAL weight
-        # mal_weights: [num_fg], raw_cls_loss: [num_fg, C]
-        loss_cls = (raw_cls_loss * mal_weights.unsqueeze(-1)).sum() / num_fg
+        # Standard BCE with matchability-modified targets
+        loss_cls = (
+            self.bcewithlog_loss(
+                cls_preds.view(-1, self.num_classes)[fg_masks], cls_targets
+            )
+        ).sum() / num_fg
 
         if self.use_l1:
             loss_l1 = (
