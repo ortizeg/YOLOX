@@ -91,16 +91,3 @@ class Exp(MyExp):
             self.optimizer = optimizer
 
         return self.optimizer
-
-    def get_evaluator(self, batch_size, is_distributed, testdev=False, legacy=False):
-        # Eval uses base model directly (no teacher)
-        from yolox.evaluators import COCOEvaluator
-
-        return COCOEvaluator(
-            dataloader=self.get_eval_loader(batch_size, is_distributed, testdev, legacy),
-            img_size=self.test_size,
-            confthre=self.test_conf,
-            nmsthre=self.nmsthre,
-            num_classes=self.num_classes,
-            testdev=testdev,
-        )
