@@ -141,12 +141,18 @@ class YOLOXDistill(nn.Module):
             x_norm = F.interpolate(x_norm, size=(pH, pW), mode="bilinear", align_corners=False)
 
         with torch.amp.autocast("cuda", dtype=dtype):
-            # Use get_intermediate_layers for robust API across DINOv2 versions
-            features_out = self.teacher.get_intermediate_layers(
-                x_norm, n=self.distill_levels, reshape=True,
-            )
-            # get_intermediate_layers with reshape=True returns list of (B, C, H, W)
-            features = [f.float() for f in features_out]
+            # Extract features by running through blocks manually
+            x_teacher = self.teacher.prepare_tokens_with_masks(x_norm)
+
+            features = []
+            for i, blk in enumerate(self.teacher.blocks):
+                x_teacher = blk(x_teacher)
+                if (i + 1) in self.distill_levels:
+                    # Remove CLS token, reshape to spatial
+                    patch_tokens = x_teacher[:, 1:]  # (B, N_patches, D)
+                    H = W = int(patch_tokens.shape[1] ** 0.5)
+                    feat = patch_tokens.reshape(B, H, W, -1).permute(0, 3, 1, 2)
+                    features.append(feat.float())
 
         return features
 
