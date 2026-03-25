@@ -3,6 +3,7 @@
 """YOLOX-S + DINOv2 distillation + AdamW.
 
 Standard YOLOX-S with frozen DINOv2-B/14 teacher for feature distillation.
+Uses interpolated loss (Hinton et al.): L = α*L_det + (1-α)*L_distill.
 Teacher is removed at inference — zero overhead.
 """
 
@@ -27,7 +28,7 @@ class Exp(MyExp):
         self.ema_momentum = 0.0002
 
         # Distillation config
-        self.distill_weight = 0.5
+        self.distill_alpha = 0.3  # 30% detection, 70% distillation (teacher-focused)
         self.distill_levels = [4, 8, 12]
         self.teacher_model = "dinov2_vitb14"
 
@@ -58,7 +59,7 @@ class Exp(MyExp):
             self.model = YOLOXDistill(
                 model=base_model,
                 teacher_model=self.teacher_model,
-                distill_weight=self.distill_weight,
+                distill_alpha=self.distill_alpha,
                 distill_levels=self.distill_levels,
                 student_channels=student_channels,
             )
@@ -72,7 +73,7 @@ class Exp(MyExp):
 
             pg0, pg1, pg2 = [], [], []
             for k, v in self.model.named_modules():
-                # Skip teacher parameters (frozen)
+                # Skip frozen teacher parameters
                 if "teacher" in k:
                     continue
                 if hasattr(v, "bias") and isinstance(v.bias, nn.Parameter):
