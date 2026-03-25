@@ -106,17 +106,15 @@ class YOLOXDistill(nn.Module):
         self.distill_levels = distill_levels
         self.teacher_precision = teacher_precision
 
-        # Load frozen DINOv2 teacher
-        logger.info("Loading DINOv2 teacher: {}", teacher_model)
-        self.teacher = torch.hub.load(
-            "facebookresearch/dinov2", teacher_model, pretrained=True,
-        )
-        self.teacher.eval()
-        for param in self.teacher.parameters():
-            param.requires_grad = False
+        # Load frozen DINOv2 teacher (deferred to first forward to avoid
+        # DDP broadcast of 86M frozen params during model init)
+        self._teacher_model_name = teacher_model
+        self.teacher = None
+        self._teacher_loaded = False
 
-        teacher_dim = self.teacher.embed_dim  # 768 for ViT-B
-        self.patch_size = self.teacher.patch_size  # 14
+        # ViT-B/14 constants (known ahead of time)
+        teacher_dim = 768  # embed_dim for dinov2_vitb14
+        self.patch_size = 14
 
         if student_channels is None:
             student_channels = [128, 256, 512]
@@ -142,9 +140,25 @@ class YOLOXDistill(nn.Module):
             len(distill_levels), teacher_dim, target_sizes,
         )
 
+    def _ensure_teacher_loaded(self, device: torch.device) -> None:
+        """Lazy-load the frozen DINOv2 teacher on first use."""
+        if self._teacher_loaded:
+            return
+        logger.info("Loading DINOv2 teacher: {} on {}", self._teacher_model_name, device)
+        self.teacher = torch.hub.load(
+            "facebookresearch/dinov2", self._teacher_model_name, pretrained=True,
+        )
+        self.teacher.to(device).eval()
+        for param in self.teacher.parameters():
+            param.requires_grad = False
+        self._teacher_loaded = True
+        logger.info("DINOv2 teacher loaded: {:,} params (frozen)",
+                     sum(p.numel() for p in self.teacher.parameters()))
+
     def forward(self, x: torch.Tensor, targets=None):
         if self.training:
             assert targets is not None
+            self._ensure_teacher_loaded(x.device)
 
             # Extract raw backbone features (pre-FPN)
             pafpn = self.model.backbone
