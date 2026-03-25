@@ -17,17 +17,17 @@ from loguru import logger
 
 
 class TeacherAdapter(nn.Module):
-    """Adapts single-scale ViT features to a target spatial resolution.
+    """Adapts single-scale ViT features to match student spatial resolution.
 
     Learns to refine bilinearly-interpolated ViT features into
     representations that are more useful for the student to learn from.
+    Target size is determined dynamically from the student feature.
 
-    Architecture: interpolate → Conv3x3 → BN → GELU → Conv1x1 → BN
+    Architecture: interpolate (dynamic) → Conv3x3 → BN → GELU → Conv1x1 → BN
     """
 
-    def __init__(self, teacher_dim: int, target_size: tuple[int, int]) -> None:
+    def __init__(self, teacher_dim: int) -> None:
         super().__init__()
-        self.target_size = target_size
         self.adapter = nn.Sequential(
             nn.Conv2d(teacher_dim, teacher_dim, 3, padding=1, bias=False),
             nn.BatchNorm2d(teacher_dim),
@@ -36,8 +36,8 @@ class TeacherAdapter(nn.Module):
             nn.BatchNorm2d(teacher_dim),
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = F.interpolate(x, size=self.target_size, mode="bilinear", align_corners=False)
+    def forward(self, x: torch.Tensor, target_size: tuple[int, int]) -> torch.Tensor:
+        x = F.interpolate(x, size=target_size, mode="bilinear", align_corners=False)
         return self.adapter(x)
 
 
@@ -98,7 +98,6 @@ class YOLOXDistill(nn.Module):
         distill_levels: list[int] = [4, 8, 12],
         teacher_precision: str = "float16",
         student_channels: list[int] | None = None,
-        target_sizes: list[tuple[int, int]] | None = None,
     ) -> None:
         super().__init__()
         self.model = model
@@ -120,13 +119,9 @@ class YOLOXDistill(nn.Module):
         if student_channels is None:
             student_channels = [128, 256, 512]
 
-        if target_sizes is None:
-            # Match CSPDarknet spatial sizes for 640x640 input
-            target_sizes = [(80, 80), (40, 40), (20, 20)]
-
-        # Teacher adapters: transform single-scale ViT → multi-scale
+        # Teacher adapters: transform single-scale ViT → multi-scale (dynamic size)
         self.teacher_adapters = nn.ModuleList([
-            TeacherAdapter(teacher_dim, size) for size in target_sizes
+            TeacherAdapter(teacher_dim) for _ in distill_levels
         ])
 
         # Student projectors: 2-layer with L2 normalization
@@ -136,9 +131,9 @@ class YOLOXDistill(nn.Module):
 
         logger.info(
             "Distillation: α={} ({}% teacher), {} levels, "
-            "teacher_dim={}, targets={}, loss=normalized_cosine",
+            "teacher_dim={}, loss=normalized_cosine, dynamic spatial",
             distill_alpha, int((1 - distill_alpha) * 100),
-            len(distill_levels), teacher_dim, target_sizes,
+            len(distill_levels), teacher_dim,
         )
 
     def _ensure_teacher_loaded(self, device: torch.device) -> None:
@@ -239,10 +234,11 @@ class YOLOXDistill(nn.Module):
             backbone_feats, teacher_feats, self.projectors, self.teacher_adapters
         ):
             # Student: project + L2 normalize (done inside StudentProjector)
-            student_proj = projector(student_feat)  # (B, 768, H, W), L2-normed
+            student_proj = projector(student_feat)  # (B, 768, H_s, W_s), L2-normed
 
-            # Teacher: adapt to target spatial size + L2 normalize
-            teacher_adapted = adapter(teacher_feat)  # (B, 768, H, W)
+            # Teacher: adapt to STUDENT's spatial size (dynamic) + L2 normalize
+            target_size = (student_proj.shape[2], student_proj.shape[3])
+            teacher_adapted = adapter(teacher_feat, target_size)  # (B, 768, H_s, W_s)
             teacher_normed = F.normalize(teacher_adapted, p=2, dim=1)
 
             # Cosine similarity loss (both are L2-normalized → dot product)
