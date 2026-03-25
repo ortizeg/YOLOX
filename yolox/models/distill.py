@@ -106,10 +106,11 @@ class YOLOXDistill(nn.Module):
         self.distill_levels = distill_levels
         self.teacher_precision = teacher_precision
 
-        # Load frozen DINOv2 teacher (deferred to first forward to avoid
-        # DDP broadcast of 86M frozen params during model init)
+        # Teacher is loaded lazily on first forward to avoid DDP broadcast.
+        # Stored as a plain attribute (not nn.Module) to exclude from
+        # DDP parameter sync and EMA deepcopy.
         self._teacher_model_name = teacher_model
-        self.teacher = None
+        self._teacher = None  # NOT self.teacher — avoids nn.Module registration
         self._teacher_loaded = False
 
         # ViT-B/14 constants (known ahead of time)
@@ -145,15 +146,15 @@ class YOLOXDistill(nn.Module):
         if self._teacher_loaded:
             return
         logger.info("Loading DINOv2 teacher: {} on {}", self._teacher_model_name, device)
-        self.teacher = torch.hub.load(
+        self._teacher = torch.hub.load(
             "facebookresearch/dinov2", self._teacher_model_name, pretrained=True,
         )
-        self.teacher.to(device).eval()
-        for param in self.teacher.parameters():
+        self._teacher.to(device).eval()
+        for param in self._teacher.parameters():
             param.requires_grad = False
         self._teacher_loaded = True
         logger.info("DINOv2 teacher loaded: {:,} params (frozen)",
-                     sum(p.numel() for p in self.teacher.parameters()))
+                     sum(p.numel() for p in self._teacher.parameters()))
 
     def forward(self, x: torch.Tensor, targets=None):
         if self.training:
@@ -214,10 +215,10 @@ class YOLOXDistill(nn.Module):
             x_norm = F.interpolate(x_norm, size=(pH, pW), mode="bilinear", align_corners=False)
 
         with torch.amp.autocast("cuda", dtype=dtype):
-            x_teacher = self.teacher.prepare_tokens_with_masks(x_norm)
+            x_teacher = self._teacher.prepare_tokens_with_masks(x_norm)
 
             features = []
-            for i, blk in enumerate(self.teacher.blocks):
+            for i, blk in enumerate(self._teacher.blocks):
                 x_teacher = blk(x_teacher)
                 if (i + 1) in self.distill_levels:
                     patch_tokens = x_teacher[:, 1:]
