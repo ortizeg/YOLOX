@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding:utf-8 -*-
-"""YOLOX-S + DINOv2 distillation + AdamW.
+"""YOLOX-S + DINOv2 distillation v4 + AdamW.
 
 Standard YOLOX-S with frozen DINOv2-B/14 teacher for feature distillation.
-Uses interpolated loss (Hinton et al.): L = α*L_det + (1-α)*L_distill.
+Additive loss (ViTKD/LRRA-style):
+  L_total = L_det + λ_feat * L_feature + λ_cls * L_cls_token + λ_attn * L_attention
 Teacher is removed at inference — zero overhead.
 """
 
@@ -27,10 +28,12 @@ class Exp(MyExp):
         self.adamw_weight_decay = 0.05
         self.ema_momentum = 0.0002
 
-        # Distillation config
-        self.distill_alpha = 0.3  # 30% detection, 70% distillation (teacher-focused)
-        self.distill_levels = [4, 8, 12]
+        # Distillation v4 config (additive loss, ViTKD/LRRA-style)
         self.teacher_model = "dinov2_vitb14"
+        self.lambda_feat = 1.0   # feature alignment weight
+        self.lambda_cls = 1.0    # CLS token weight
+        self.lambda_attn = 0.5   # attention map weight
+        self.teacher_layer = 12  # deepest ViT-B layer
 
     def get_model(self):
         from yolox.models import YOLOX, YOLOPAFPN, YOLOXHead
@@ -54,13 +57,16 @@ class Exp(MyExp):
             base_model.apply(init_yolo)
             base_model.head.initialize_biases(1e-2)
 
-            # Wrap with distillation
-            student_channels = [int(c * self.width) for c in in_channels]
+            # Wrap with distillation v4
+            # dark5 channels = 1024 * width = 512 for YOLOX-S
+            student_channels = int(in_channels[-1] * self.width)
             self.model = YOLOXDistill(
                 model=base_model,
                 teacher_model=self.teacher_model,
-                distill_alpha=self.distill_alpha,
-                distill_levels=self.distill_levels,
+                lambda_feat=self.lambda_feat,
+                lambda_cls=self.lambda_cls,
+                lambda_attn=self.lambda_attn,
+                teacher_layer=self.teacher_layer,
                 student_channels=student_channels,
             )
 
