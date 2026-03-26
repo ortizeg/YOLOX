@@ -30,9 +30,9 @@ class Exp(MyExp):
 
         # Distillation v4 config (additive loss, ViTKD/LRRA-style)
         self.teacher_model = "dinov2_vitb14"
-        self.lambda_feat = 1.0   # feature alignment weight
-        self.lambda_cls = 1.0    # CLS token weight
-        self.lambda_attn = 0.5   # attention map weight
+        self.lambda_feat = 0.01   # feature alignment weight
+        self.lambda_cls = 0.01   # CLS token weight
+        self.lambda_attn = 0.005 # attention map weight
         self.teacher_layer = 12  # deepest ViT-B layer
 
     def get_model(self):

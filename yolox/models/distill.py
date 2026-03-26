@@ -84,9 +84,9 @@ class YOLOXDistill(nn.Module):
     Args:
         model: Base YOLOX model.
         teacher_model: DINOv2 model name.
-        lambda_feat: Feature alignment loss weight. Default 1.0.
-        lambda_cls: CLS token loss weight. Default 1.0.
-        lambda_attn: Attention map loss weight. Default 0.5.
+        lambda_feat: Feature alignment loss weight. Default 0.01.
+        lambda_cls: CLS token loss weight. Default 0.01.
+        lambda_attn: Attention map loss weight. Default 0.005.
         teacher_layer: Which ViT layer to distill from. Default 12 (last).
         teacher_precision: Precision for frozen teacher.
         student_channels: Channel count for dark5 (512 for YOLOX-S width=0.5).
@@ -96,9 +96,9 @@ class YOLOXDistill(nn.Module):
         self,
         model: nn.Module,
         teacher_model: str = "dinov2_vitb14",
-        lambda_feat: float = 1.0,
-        lambda_cls: float = 1.0,
-        lambda_attn: float = 0.5,
+        lambda_feat: float = 0.01,
+        lambda_cls: float = 0.01,
+        lambda_attn: float = 0.005,
         teacher_layer: int = 12,
         teacher_precision: str = "float16",
         student_channels: int = 512,
