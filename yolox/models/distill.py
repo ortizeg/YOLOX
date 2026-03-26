@@ -151,13 +151,36 @@ class YOLOXDistill(nn.Module):
             assert targets is not None
             self._ensure_teacher_loaded(x.device)
 
-            # Extract dark5 (deepest pre-FPN backbone features)
+            # Run backbone ONCE, extract dark5 for distillation,
+            # then run FPN neck using the same backbone outputs.
             pafpn = self.model.backbone
             darknet_outs = pafpn.backbone(x)
             dark5 = darknet_outs[pafpn.in_features[-1]]  # stride 32, 512ch
 
-            # Run full PAFPN + head for detection loss
-            fpn_outs = pafpn(x)
+            # Run FPN neck on cached backbone outputs (no second backbone pass)
+            features = [darknet_outs[f] for f in pafpn.in_features]
+            [x2, x1, x0] = features
+
+            fpn_out0 = pafpn.lateral_conv0(x0)
+            f_out0 = pafpn.upsample(fpn_out0)
+            f_out0 = torch.cat([f_out0, x1], 1)
+            f_out0 = pafpn.C3_p4(f_out0)
+
+            fpn_out1 = pafpn.reduce_conv1(f_out0)
+            f_out1 = pafpn.upsample(fpn_out1)
+            f_out1 = torch.cat([f_out1, x2], 1)
+            pan_out2 = pafpn.C3_p3(f_out1)
+
+            p_out1 = pafpn.bu_conv2(pan_out2)
+            p_out1 = torch.cat([p_out1, fpn_out1], 1)
+            pan_out1 = pafpn.C3_n3(p_out1)
+
+            p_out0 = pafpn.bu_conv1(pan_out1)
+            p_out0 = torch.cat([p_out0, fpn_out0], 1)
+            pan_out0 = pafpn.C3_n4(p_out0)
+
+            fpn_outs = (pan_out2, pan_out1, pan_out0)
+
             det_loss, iou_loss, conf_loss, cls_loss, l1_loss, num_fg = self.model.head(
                 fpn_outs, targets, x
             )
