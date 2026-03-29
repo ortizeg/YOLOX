@@ -228,6 +228,11 @@ class Trainer:
     def before_epoch(self):
         logger.info("---> start train epoch{}".format(self.epoch + 1))
 
+        # Update distillation warmup epoch if applicable
+        model = self.model.module if self.is_distributed else self.model
+        if hasattr(model, "set_epoch"):
+            model.set_epoch(self.epoch + 1)
+
         if self.epoch + 1 == self.max_epoch - self.exp.no_aug_epochs or self.no_aug:
             logger.info("--->No mosaic aug now!")
             self.train_loader.close_mosaic()

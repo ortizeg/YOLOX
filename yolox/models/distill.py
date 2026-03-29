@@ -84,9 +84,11 @@ class YOLOXDistill(nn.Module):
     Args:
         model: Base YOLOX model.
         teacher_model: DINOv2 model name.
-        lambda_feat: Feature alignment loss weight. Default 0.01.
-        lambda_cls: CLS token loss weight. Default 0.01.
-        lambda_attn: Attention map loss weight. Default 0.005.
+        lambda_feat: Feature alignment loss weight. Default 0.5.
+        lambda_cls: CLS token loss weight. Default 0.5.
+        lambda_attn: Attention map loss weight. Default 0.25.
+        warmup_start_epoch: Epoch to begin distillation warmup. Default 30.
+        warmup_end_epoch: Epoch at which lambdas reach full value. Default 100.
         teacher_layer: Which ViT layer to distill from. Default 12 (last).
         teacher_precision: Precision for frozen teacher.
         student_channels: Channel count for dark5 (512 for YOLOX-S width=0.5).
@@ -96,12 +98,14 @@ class YOLOXDistill(nn.Module):
         self,
         model: nn.Module,
         teacher_model: str = "dinov2_vitb14",
-        lambda_feat: float = 0.01,
-        lambda_cls: float = 0.01,
-        lambda_attn: float = 0.005,
+        lambda_feat: float = 0.5,
+        lambda_cls: float = 0.5,
+        lambda_attn: float = 0.25,
         teacher_layer: int = 12,
         teacher_precision: str = "float16",
         student_channels: int = 512,
+        warmup_start_epoch: int = 30,
+        warmup_end_epoch: int = 100,
     ) -> None:
         super().__init__()
         self.model = model
@@ -110,6 +114,9 @@ class YOLOXDistill(nn.Module):
         self.lambda_attn = lambda_attn
         self.teacher_layer = teacher_layer
         self.teacher_precision = teacher_precision
+        self.warmup_start_epoch = warmup_start_epoch
+        self.warmup_end_epoch = warmup_end_epoch
+        self._current_epoch = 0
 
         # Teacher loaded lazily (plain attr, excluded from DDP/EMA)
         self._teacher_model_name = teacher_model
@@ -127,10 +134,27 @@ class YOLOXDistill(nn.Module):
         self.cls_projector = CLSProjector(student_channels, teacher_dim)
 
         logger.info(
-            "Distillation v4: additive loss, λ_feat={}, λ_cls={}, λ_attn={}, "
-            "teacher_layer={}, student_ch={}",
-            lambda_feat, lambda_cls, lambda_attn, teacher_layer, student_channels,
+            "Distillation v5: warmup additive loss, λ_feat={}, λ_cls={}, λ_attn={}, "
+            "warmup=[{},{}], teacher_layer={}, student_ch={}",
+            lambda_feat, lambda_cls, lambda_attn,
+            warmup_start_epoch, warmup_end_epoch,
+            teacher_layer, student_channels,
         )
+
+    def set_epoch(self, epoch: int) -> None:
+        """Called by the trainer to update the current epoch for warmup scheduling."""
+        self._current_epoch = epoch
+
+    def _warmup_scale(self) -> float:
+        """Returns 0→1 scale factor for distillation lambdas."""
+        if self._current_epoch < self.warmup_start_epoch:
+            return 0.0
+        if self._current_epoch >= self.warmup_end_epoch:
+            return 1.0
+        progress = (self._current_epoch - self.warmup_start_epoch) / (
+            self.warmup_end_epoch - self.warmup_start_epoch
+        )
+        return progress
 
     def _ensure_teacher_loaded(self, device: torch.device) -> None:
         if self._teacher_loaded:
@@ -197,12 +221,13 @@ class YOLOXDistill(nn.Module):
             # 3. Attention map loss (spatial attention KL divergence)
             attn_loss = self._attention_loss(dark5, teacher_attn)
 
-            # Additive loss (ViTKD-style)
+            # Additive loss with warmup (ViTKD-style)
+            scale = self._warmup_scale()
             total_loss = (
                 det_loss
-                + self.lambda_feat * feat_loss
-                + self.lambda_cls * cls_token_loss
-                + self.lambda_attn * attn_loss
+                + scale * self.lambda_feat * feat_loss
+                + scale * self.lambda_cls * cls_token_loss
+                + scale * self.lambda_attn * attn_loss
             )
 
             outputs = {

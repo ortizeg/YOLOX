@@ -30,10 +30,12 @@ class Exp(MyExp):
 
         # Distillation v4 config (additive loss, ViTKD/LRRA-style)
         self.teacher_model = "dinov2_vitb14"
-        self.lambda_feat = 0.01   # feature alignment weight
-        self.lambda_cls = 0.01   # CLS token weight
-        self.lambda_attn = 0.005 # attention map weight
+        self.lambda_feat = 0.5    # feature alignment weight
+        self.lambda_cls = 0.5    # CLS token weight
+        self.lambda_attn = 0.25  # attention map weight
         self.teacher_layer = 12  # deepest ViT-B layer
+        self.warmup_start_epoch = 30   # no distillation before this
+        self.warmup_end_epoch = 100    # full lambda by this epoch
 
     def get_model(self):
         from yolox.models import YOLOX, YOLOPAFPN, YOLOXHead
@@ -68,6 +70,8 @@ class Exp(MyExp):
                 lambda_attn=self.lambda_attn,
                 teacher_layer=self.teacher_layer,
                 student_channels=student_channels,
+                warmup_start_epoch=self.warmup_start_epoch,
+                warmup_end_epoch=self.warmup_end_epoch,
             )
 
         self.model.train()
