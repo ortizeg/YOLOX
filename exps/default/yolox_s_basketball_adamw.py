@@ -48,8 +48,8 @@ class Exp(MyExp):
         self.translate = 0.1
         self.shear = 2.0
 
-        # Dataset paths (set via CLI or here)
-        self.data_dir = None  # Set to parent of train/valid/test
+        # Dataset paths
+        self.data_dir = "datasets/basketball"
         self.train_ann = "train.json"
         self.val_ann = "valid.json"
         self.test_ann = "test.json"
