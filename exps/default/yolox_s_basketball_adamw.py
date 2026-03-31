@@ -26,26 +26,28 @@ class Exp(MyExp):
         self.exp_name = os.path.split(os.path.realpath(__file__))[1].split(".")[0]
 
         # Fine-tuning hyperparameters (AdamW)
-        self.max_epoch = 100
-        self.no_aug_epochs = 15
-        self.warmup_epochs = 5
+        self.max_epoch = 200
+        self.no_aug_epochs = 30  # longer refinement for small dataset
+        self.warmup_epochs = 10
         self.eval_interval = 5
 
-        # AdamW optimizer settings
-        self.basic_lr_per_img = 0.001 / 64.0  # Lower LR for fine-tuning
-        self.adamw_lr = 0.001
+        # AdamW optimizer settings — lower LR for fine-tuning from COCO
+        self.basic_lr_per_img = 0.0005 / 64.0
+        self.adamw_lr = 0.0005
         self.adamw_weight_decay = 0.05
 
-        # Disable mosaic/mixup for small fine-tuning dataset
-        self.mosaic_prob = 0.0
-        self.mixup_prob = 0.0
-        self.enable_mixup = False
+        # Enable mosaic to create synthetic variety from small dataset
+        self.mosaic_prob = 1.0
+        self.mixup_prob = 0.5
+        self.enable_mixup = True
+        self.mosaic_scale = (0.5, 1.5)
+        self.mixup_scale = (0.5, 1.5)
 
-        # Keep simple augmentations
+        # Augmentations
         self.hsv_prob = 1.0
         self.flip_prob = 0.5
         self.degrees = 10.0
-        self.translate = 0.1
+        self.translate = 0.2
         self.shear = 2.0
 
         # Dataset paths
@@ -87,7 +89,7 @@ class Exp(MyExp):
             name="train",
             img_size=self.input_size,
             preproc=TrainTransform(
-                max_labels=120,
+                max_labels=200,
                 flip_prob=self.flip_prob,
                 hsv_prob=self.hsv_prob,
             ),
