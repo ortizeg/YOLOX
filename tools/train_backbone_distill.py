@@ -64,6 +64,9 @@ def make_parser():
 
 def build_dataloaders(args):
     """Build ImageNet train and val dataloaders."""
+    from PIL import ImageFile
+    ImageFile.LOAD_TRUNCATED_IMAGES = True  # Handle truncated images gracefully
+
     normalize = transforms.Normalize(
         mean=[0.485, 0.456, 0.406],
         std=[0.229, 0.224, 0.225],
