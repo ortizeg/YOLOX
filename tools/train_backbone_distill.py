@@ -284,7 +284,10 @@ def main():
     best_acc1 = 0
     if args.resume:
         ckpt = torch.load(args.resume, map_location=device, weights_only=False)
-        model.load_state_dict(ckpt["model"])
+        # Load with strict=False to handle teacher weights in checkpoint
+        missing, unexpected = model.load_state_dict(ckpt["model"], strict=False)
+        if unexpected:
+            logger.info("Skipped {} unexpected keys (teacher weights)", len(unexpected))
         optimizer.load_state_dict(ckpt["optimizer"])
         start_epoch = ckpt["epoch"] + 1
         best_acc1 = ckpt.get("best_acc1", 0)
