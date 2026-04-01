@@ -193,7 +193,8 @@ def train_one_epoch(model, loader, optimizer, scaler, device, epoch, args):
 
         with torch.amp.autocast("cuda", enabled=args.fp16):
             outputs = model(images, targets)
-            loss = outputs["total_loss"]
+            # DataParallel gathers per-GPU losses — mean them for backward
+            loss = outputs["total_loss"].mean()
 
         optimizer.zero_grad()
         if args.fp16:
@@ -207,10 +208,10 @@ def train_one_epoch(model, loader, optimizer, scaler, device, epoch, args):
             torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
             optimizer.step()
 
-        total_loss += outputs["total_loss"].item()
-        total_cls_loss += outputs["cls_loss"].item()
-        total_feat_loss += outputs["feat_loss"].item()
-        total_acc += outputs["acc1"].item()
+        total_loss += outputs["total_loss"].mean().item()
+        total_cls_loss += outputs["cls_loss"].mean().item()
+        total_feat_loss += outputs["feat_loss"].mean().item()
+        total_acc += outputs["acc1"].mean().item()
         num_batches += 1
 
         if (i + 1) % 100 == 0:
@@ -218,11 +219,11 @@ def train_one_epoch(model, loader, optimizer, scaler, device, epoch, args):
                 "epoch {}/{}, iter {}/{}: loss={:.3f}, cls={:.3f}, feat={:.3f}, "
                 "cls_tok={:.3f}, acc1={:.1%}, lr={:.6f}",
                 epoch + 1, args.epochs, i + 1, len(loader),
-                outputs["total_loss"].item(),
-                outputs["cls_loss"].item(),
-                outputs["feat_loss"].item(),
-                outputs["cls_token_loss"].item(),
-                outputs["acc1"].item(),
+                outputs["total_loss"].mean().item(),
+                outputs["cls_loss"].mean().item(),
+                outputs["feat_loss"].mean().item(),
+                outputs["cls_token_loss"].mean().item(),
+                outputs["acc1"].mean().item(),
                 optimizer.param_groups[0]["lr"],
             )
 
