@@ -272,6 +272,14 @@ def main():
     logger.info("Model built: backbone params={:,}",
                 sum(p.numel() for p in model.backbone.parameters()))
 
+    # Pre-load teacher before DataParallel wrapping
+    model._ensure_teacher_loaded(device)
+
+    # Multi-GPU with DataParallel
+    if torch.cuda.device_count() > 1:
+        logger.info("Using DataParallel with {} GPUs", torch.cuda.device_count())
+        model = torch.nn.DataParallel(model)
+
     # Build data
     train_loader, val_loader = build_dataloaders(args)
 
@@ -318,11 +326,12 @@ def main():
             logger.info("Val: acc1={:.1%}, acc5={:.1%}", acc1, acc5)
 
             # Save best
+            raw_model = model.module if hasattr(model, "module") else model
             if acc1 > best_acc1:
                 best_acc1 = acc1
-                # Save full checkpoint
+                # Save full checkpoint (unwrap DataParallel)
                 torch.save({
-                    "model": model.state_dict(),
+                    "model": raw_model.state_dict(),
                     "optimizer": optimizer.state_dict(),
                     "epoch": epoch,
                     "best_acc1": best_acc1,
@@ -331,15 +340,16 @@ def main():
 
                 # Save backbone-only weights (for YOLOX fine-tuning)
                 torch.save(
-                    {"model": model.get_backbone_state_dict()},
+                    {"model": raw_model.get_backbone_state_dict()},
                     os.path.join(args.output_dir, "best_backbone.pth"),
                 )
                 logger.info("New best! acc1={:.1%}, saved backbone to {}",
                            acc1, args.output_dir)
 
-        # Save latest
+        # Save latest (unwrap DataParallel)
+        raw_model = model.module if hasattr(model, "module") else model
         torch.save({
-            "model": model.state_dict(),
+            "model": raw_model.state_dict(),
             "optimizer": optimizer.state_dict(),
             "epoch": epoch,
             "best_acc1": best_acc1,
