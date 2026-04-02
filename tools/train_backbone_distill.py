@@ -44,6 +44,8 @@ def make_parser():
                         help="Feature alignment loss weight")
     parser.add_argument("--lambda-cls-token", type=float, default=1.0,
                         help="CLS token loss weight")
+    parser.add_argument("--lambda-rkd", type=float, default=1.0,
+                        help="Relational KD loss weight")
     parser.add_argument("--teacher-model", type=str, default="dinov2_vitb14")
     parser.add_argument("--teacher-layer", type=int, default=12)
     parser.add_argument("--depth", type=float, default=0.33,
@@ -135,6 +137,7 @@ def build_model(args):
         student_dim=student_dim,
         lambda_feat=args.lambda_feat,
         lambda_cls_token=args.lambda_cls_token,
+        lambda_rkd=args.lambda_rkd,
     )
     return model
 
@@ -217,12 +220,13 @@ def train_one_epoch(model, loader, optimizer, scaler, device, epoch, args):
         if (i + 1) % 100 == 0:
             logger.info(
                 "epoch {}/{}, iter {}/{}: loss={:.3f}, cls={:.3f}, feat={:.3f}, "
-                "cls_tok={:.3f}, acc1={:.1%}, lr={:.6f}",
+                "cls_tok={:.3f}, rkd={:.3f}, acc1={:.1%}, lr={:.6f}",
                 epoch + 1, args.epochs, i + 1, len(loader),
                 outputs["total_loss"].mean().item(),
                 outputs["cls_loss"].mean().item(),
                 outputs["feat_loss"].mean().item(),
                 outputs["cls_token_loss"].mean().item(),
+                outputs.get("rkd_loss", torch.tensor(0.0)).mean().item(),
                 outputs["acc1"].mean().item(),
                 optimizer.param_groups[0]["lr"],
             )

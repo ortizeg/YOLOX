@@ -7,12 +7,17 @@ classification. The distilled backbone can then be used as a drop-in
 replacement for YOLOX detection training.
 
 Combined loss:
-  L = L_cls + λ_feat * L_feature + λ_cls_token * L_cls_token
+  L = L_cls + λ_feat * L_feature + λ_cls * L_cls_token + λ_rkd * L_relational
 
-Two distillation signals:
-1. Feature alignment: dark5 (512ch, 20x20) → DINOv2 layer 12 (768ch, 46x46)
-2. CLS token: GAP(dark5) → DINOv2 [CLS] token
-Plus ImageNet classification as auxiliary task to keep features useful.
+Three distillation signals:
+1. Feature alignment: dark5 → DINOv2 layer 12 (cosine similarity)
+2. CLS token: GAP(dark5) → DINOv2 [CLS] token (cosine similarity)
+3. Relational KD: match pairwise similarity structure between samples
+   (architecture-agnostic, captures "how samples relate" not raw features)
+
+Best with input_size=448: dark5 is 14x14, closely matching DINOv2's
+patch grid (448/14=32 patches per side). This spatial alignment is
+critical for feature distillation quality.
 """
 
 from __future__ import annotations
@@ -36,6 +41,7 @@ class BackboneDistillModel(nn.Module):
         student_dim: Student dark5 channel count (512 for YOLOX-S).
         lambda_feat: Feature alignment loss weight.
         lambda_cls_token: CLS token loss weight.
+        lambda_rkd: Relational knowledge distillation weight.
         teacher_precision: Precision for frozen teacher.
     """
 
@@ -49,12 +55,14 @@ class BackboneDistillModel(nn.Module):
         student_dim: int = 512,
         lambda_feat: float = 2.0,
         lambda_cls_token: float = 1.0,
+        lambda_rkd: float = 1.0,
         teacher_precision: str = "float16",
     ) -> None:
         super().__init__()
         self.backbone = backbone
         self.lambda_feat = lambda_feat
         self.lambda_cls_token = lambda_cls_token
+        self.lambda_rkd = lambda_rkd
         self.teacher_layer = teacher_layer
         self.teacher_precision = teacher_precision
         self.patch_size = 14
@@ -89,9 +97,10 @@ class BackboneDistillModel(nn.Module):
         self._teacher_loaded = False
 
         logger.info(
-            "Backbone distillation: λ_feat={}, λ_cls={}, teacher_layer={}, "
-            "student_dim={}, teacher_dim={}",
-            lambda_feat, lambda_cls_token, teacher_layer, student_dim, teacher_dim,
+            "Backbone distillation: λ_feat={}, λ_cls={}, λ_rkd={}, "
+            "teacher_layer={}, student_dim={}, teacher_dim={}",
+            lambda_feat, lambda_cls_token, lambda_rkd,
+            teacher_layer, student_dim, teacher_dim,
         )
 
     def _ensure_teacher_loaded(self, device: torch.device) -> None:
@@ -109,16 +118,6 @@ class BackboneDistillModel(nn.Module):
                      sum(p.numel() for p in self._teacher.parameters()))
 
     def forward(self, x: torch.Tensor, targets: torch.Tensor | None = None):
-        """Forward pass.
-
-        Args:
-            x: Input images (B, 3, H, W), ImageNet normalized.
-            targets: Class labels (B,) for classification loss.
-
-        Returns:
-            During training: dict with losses.
-            During eval: classification logits (B, num_classes).
-        """
         # Run student backbone
         backbone_outs = self.backbone(x)
         dark5 = backbone_outs["dark5"]  # (B, 512, H/32, W/32)
@@ -142,11 +141,15 @@ class BackboneDistillModel(nn.Module):
         # CLS token loss (cosine similarity)
         cls_token_loss = self._cls_token_loss(dark5, teacher_cls)
 
+        # Relational knowledge distillation
+        rkd_loss = self._relational_loss(dark5, teacher_cls)
+
         # Combined loss
         total_loss = (
             cls_loss
             + self.lambda_feat * feat_loss
             + self.lambda_cls_token * cls_token_loss
+            + self.lambda_rkd * rkd_loss
         )
 
         return {
@@ -154,6 +157,7 @@ class BackboneDistillModel(nn.Module):
             "cls_loss": cls_loss.detach(),
             "feat_loss": feat_loss.detach(),
             "cls_token_loss": cls_token_loss.detach(),
+            "rkd_loss": rkd_loss.detach(),
             "acc1": (logits.argmax(dim=1) == targets).float().mean().detach(),
         }
 
@@ -163,7 +167,6 @@ class BackboneDistillModel(nn.Module):
         B = x.shape[0]
         dtype = torch.float16 if self.teacher_precision == "float16" else torch.float32
 
-        # DINOv2 expects ImageNet-normalized input (already done by dataloader)
         H, W = x.shape[2:]
         pH = (H // self.patch_size) * self.patch_size
         pW = (W // self.patch_size) * self.patch_size
@@ -210,6 +213,58 @@ class BackboneDistillModel(nn.Module):
 
         cos_sim = (student_norm * teacher_norm).sum(dim=1)
         return (1.0 - cos_sim).mean()
+
+    def _relational_loss(self, dark5: torch.Tensor, teacher_cls: torch.Tensor) -> torch.Tensor:
+        """Relational Knowledge Distillation (RKD distance + angle).
+
+        Matches pairwise distance and angle structures between samples.
+        Architecture-agnostic: compares relationships, not raw features.
+        Based on "Relational Knowledge Distillation" (Park et al., CVPR 2019).
+        """
+        # Student: GAP(dark5) as sample embedding
+        student_emb = dark5.mean(dim=[2, 3])  # (B, 512)
+        student_emb = F.normalize(student_emb, p=2, dim=1)
+
+        # Teacher: CLS token as sample embedding
+        teacher_emb = F.normalize(teacher_cls, p=2, dim=1)  # (B, 768)
+
+        # --- Distance-wise RKD ---
+        # Pairwise distances (B, B)
+        s_dist = torch.cdist(student_emb, student_emb, p=2)
+        t_dist = torch.cdist(teacher_emb, teacher_emb, p=2)
+
+        # Normalize by mean distance (makes it scale-invariant)
+        s_dist = s_dist / (s_dist.mean() + 1e-8)
+        t_dist = t_dist / (t_dist.mean() + 1e-8)
+
+        # Huber loss on pairwise distances
+        dist_loss = F.smooth_l1_loss(s_dist, t_dist)
+
+        # --- Angle-wise RKD ---
+        # For every triplet (i, j, k), match the angle at j
+        # Efficient: compute all pairwise difference vectors, then cosine
+        B = student_emb.shape[0]
+        if B < 3:
+            return dist_loss
+
+        # Difference vectors: (B, B, D)
+        s_diff = student_emb.unsqueeze(0) - student_emb.unsqueeze(1)
+        t_diff = teacher_emb.unsqueeze(0) - teacher_emb.unsqueeze(1)
+
+        # Cosine of angles between difference vectors at each anchor
+        # For each pair of difference vectors from the same anchor point
+        s_diff_norm = F.normalize(s_diff, p=2, dim=2)
+        t_diff_norm = F.normalize(t_diff, p=2, dim=2)
+
+        # Angle matrix: cosine similarity between all pairs of directions
+        # (B, B, B) would be too large — use a sampled version
+        # Instead, match the pairwise cosine similarity matrix
+        s_angle = torch.bmm(s_diff_norm, s_diff_norm.transpose(1, 2))  # (B, B, B)
+        t_angle = torch.bmm(t_diff_norm, t_diff_norm.transpose(1, 2))  # (B, B, B)
+
+        angle_loss = F.smooth_l1_loss(s_angle, t_angle)
+
+        return dist_loss + angle_loss
 
     def get_backbone_state_dict(self) -> dict:
         """Extract only the backbone weights for downstream use."""
