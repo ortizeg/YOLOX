@@ -259,6 +259,10 @@ post-remap merged-class dedupe (applied to every model alike), 94 test images. T
 order, which this manifest does not encode. Outputs: [`eval/merged5.json`](eval/merged5.json)
 (mAP@50:95/50/75 + per-class AP50), [`eval/merged5.log.gz`](eval/merged5.log.gz).
 
+The same scoring is committed upstream as a scorer, manifest, results file and generated report
+(`benchmarks/basketball/reports/TAXONOMY_ABLATION.md`, ortizeg/object-detection-eval PR #40); its
+numbers are identical to the ones below.
+
 **Harness check.** The published models, scored in the same run, reproduce the published
 table: YOLO26m 0.7173 (published 0.716), YOLOX-M @640 0.6681 (published 0.672, within the
 gate's 0.01 tolerance).
