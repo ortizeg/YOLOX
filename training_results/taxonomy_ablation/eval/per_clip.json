@@ -1,0 +1,93 @@
+{
+  "clips": {
+    "boston-celtics-new-york-knicks-game-4-q1|05_06-05_01": 33,
+    "boston-celtics-orlando-magic-game-4-q1|11_44-11_36": 31,
+    "boston-celtics-new-york-knicks-game-1-q1|07_41-07_34": 30
+  },
+  "models": {
+    "YOLOX-M published": {
+      "all": 0.6681215763092041,
+      "boston-celtics-new-york-knicks-game-4-q1|05_06-05_01": 0.6723926663398743,
+      "boston-celtics-orlando-magic-game-4-q1|11_44-11_36": 0.6263951063156128,
+      "boston-celtics-new-york-knicks-game-1-q1|07_41-07_34": 0.7148339748382568
+    },
+    "YOLO26m published": {
+      "all": 0.7173024415969849,
+      "boston-celtics-new-york-knicks-game-4-q1|05_06-05_01": 0.7390173673629761,
+      "boston-celtics-orlando-magic-game-4-q1|11_44-11_36": 0.705735445022583,
+      "boston-celtics-new-york-knicks-game-1-q1|07_41-07_34": 0.7129887342453003
+    },
+    "YOLOX-M 10c_seed0": {
+      "all": 0.6768429279327393,
+      "boston-celtics-new-york-knicks-game-4-q1|05_06-05_01": 0.6768192648887634,
+      "boston-celtics-orlando-magic-game-4-q1|11_44-11_36": 0.6373539566993713,
+      "boston-celtics-new-york-knicks-game-1-q1|07_41-07_34": 0.72149258852005
+    },
+    "YOLO26m 10c_seed0": {
+      "all": 0.7117867469787598,
+      "boston-celtics-new-york-knicks-game-4-q1|05_06-05_01": 0.724643886089325,
+      "boston-celtics-orlando-magic-game-4-q1|11_44-11_36": 0.6974124908447266,
+      "boston-celtics-new-york-knicks-game-1-q1|07_41-07_34": 0.7210220098495483
+    },
+    "YOLOX-M 10c_seed1": {
+      "all": 0.646314263343811,
+      "boston-celtics-new-york-knicks-game-4-q1|05_06-05_01": 0.6488003730773926,
+      "boston-celtics-orlando-magic-game-4-q1|11_44-11_36": 0.6086059808731079,
+      "boston-celtics-new-york-knicks-game-1-q1|07_41-07_34": 0.7011924982070923
+    },
+    "YOLO26m 10c_seed1": {
+      "all": 0.7025087475776672,
+      "boston-celtics-new-york-knicks-game-4-q1|05_06-05_01": 0.7215719223022461,
+      "boston-celtics-orlando-magic-game-4-q1|11_44-11_36": 0.6935960054397583,
+      "boston-celtics-new-york-knicks-game-1-q1|07_41-07_34": 0.696547269821167
+    },
+    "YOLOX-M 10c_seed2": {
+      "all": 0.6714398860931396,
+      "boston-celtics-new-york-knicks-game-4-q1|05_06-05_01": 0.674024224281311,
+      "boston-celtics-orlando-magic-game-4-q1|11_44-11_36": 0.6467673778533936,
+      "boston-celtics-new-york-knicks-game-1-q1|07_41-07_34": 0.7075507640838623
+    },
+    "YOLO26m 10c_seed2": {
+      "all": 0.7215193510055542,
+      "boston-celtics-new-york-knicks-game-4-q1|05_06-05_01": 0.7338667511940002,
+      "boston-celtics-orlando-magic-game-4-q1|11_44-11_36": 0.7064782381057739,
+      "boston-celtics-new-york-knicks-game-1-q1|07_41-07_34": 0.7308864593505859
+    },
+    "YOLOX-M 5c_seed0": {
+      "all": 0.6743795275688171,
+      "boston-celtics-new-york-knicks-game-4-q1|05_06-05_01": 0.6713327169418335,
+      "boston-celtics-orlando-magic-game-4-q1|11_44-11_36": 0.6523573398590088,
+      "boston-celtics-new-york-knicks-game-1-q1|07_41-07_34": 0.7063473463058472
+    },
+    "YOLO26m 5c_seed0": {
+      "all": 0.7118202447891235,
+      "boston-celtics-new-york-knicks-game-4-q1|05_06-05_01": 0.7259941101074219,
+      "boston-celtics-orlando-magic-game-4-q1|11_44-11_36": 0.6819434762001038,
+      "boston-celtics-new-york-knicks-game-1-q1|07_41-07_34": 0.7445623874664307
+    },
+    "YOLOX-M 5c_seed1": {
+      "all": 0.6626676321029663,
+      "boston-celtics-new-york-knicks-game-4-q1|05_06-05_01": 0.6629838347434998,
+      "boston-celtics-orlando-magic-game-4-q1|11_44-11_36": 0.628748893737793,
+      "boston-celtics-new-york-knicks-game-1-q1|07_41-07_34": 0.709060549736023
+    },
+    "YOLO26m 5c_seed1": {
+      "all": 0.7178624868392944,
+      "boston-celtics-new-york-knicks-game-4-q1|05_06-05_01": 0.7515324950218201,
+      "boston-celtics-orlando-magic-game-4-q1|11_44-11_36": 0.6837159395217896,
+      "boston-celtics-new-york-knicks-game-1-q1|07_41-07_34": 0.7204295992851257
+    },
+    "YOLOX-M 5c_seed2": {
+      "all": 0.6803755164146423,
+      "boston-celtics-new-york-knicks-game-4-q1|05_06-05_01": 0.6738002896308899,
+      "boston-celtics-orlando-magic-game-4-q1|11_44-11_36": 0.6526781320571899,
+      "boston-celtics-new-york-knicks-game-1-q1|07_41-07_34": 0.7260353565216064
+    },
+    "YOLO26m 5c_seed2": {
+      "all": 0.7124969363212585,
+      "boston-celtics-new-york-knicks-game-4-q1|05_06-05_01": 0.7303038835525513,
+      "boston-celtics-orlando-magic-game-4-q1|11_44-11_36": 0.6896149516105652,
+      "boston-celtics-new-york-knicks-game-1-q1|07_41-07_34": 0.7294638156890869
+    }
+  }
+}
