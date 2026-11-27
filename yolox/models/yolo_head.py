@@ -162,16 +162,24 @@ class YOLOXHead(nn.Module):
 
             if self.training:
                 output = torch.cat([reg_output, obj_output, cls_output], 1)
-                output, grid = self.get_output_and_grid(
-                    output, k, stride_this_level, xin[0].type()
-                )
-                x_shifts.append(grid[:, :, 0])
-                y_shifts.append(grid[:, :, 1])
-                expanded_strides.append(
-                    torch.zeros(1, grid.shape[1])
-                    .fill_(stride_this_level)
-                    .type_as(xin[0])
-                )
+                if perf.on("head_nosync"):
+                    output, grid, stride_row = self.get_output_and_grid_nosync(
+                        output, k, stride_this_level, xin[0].dtype, xin[0].device
+                    )
+                    x_shifts.append(grid[:, :, 0])
+                    y_shifts.append(grid[:, :, 1])
+                    expanded_strides.append(stride_row)
+                else:
+                    output, grid = self.get_output_and_grid(
+                        output, k, stride_this_level, xin[0].type()
+                    )
+                    x_shifts.append(grid[:, :, 0])
+                    y_shifts.append(grid[:, :, 1])
+                    expanded_strides.append(
+                        torch.zeros(1, grid.shape[1])
+                        .fill_(stride_this_level)
+                        .type_as(xin[0])
+                    )
                 if self.use_l1:
                     batch_size = reg_output.shape[0]
                     hsize, wsize = reg_output.shape[-2:]
@@ -208,6 +216,8 @@ class YOLOXHead(nn.Module):
                 [x.flatten(start_dim=2) for x in outputs], dim=2
             ).permute(0, 2, 1)
             if self.decode_in_inference:
+                if perf.on("head_nosync"):
+                    return self.decode_outputs_nosync(outputs, xin[0].dtype, xin[0].device)
                 return self.decode_outputs(outputs, dtype=xin[0].type())
             else:
                 return outputs
@@ -231,6 +241,55 @@ class YOLOXHead(nn.Module):
         output[..., :2] = (output[..., :2] + grid) * stride
         output[..., 2:4] = torch.exp(output[..., 2:4]) * stride
         return output, grid
+
+    def _device_grid(self, key, hsize, wsize, stride, dtype, device):
+        """Grid [1, H*W, 2] (x, y) and stride row [1, H*W] built directly on ``device`` (perf flag ``head_nosync``),
+        cached per (key, H, W, stride, dtype, device) so multiscale sizes are built once each. Same values as the
+        CPU-built originals: small integers, exactly representable in every float dtype."""
+        cache = self.__dict__.setdefault("_nosync_cache", {})
+        ck = (key, hsize, wsize, stride, dtype, device)
+        hit = cache.get(ck)
+        if hit is None:
+            if len(cache) >= 256:  # bound it (11 multiscale sizes x 3 levels in practice)
+                cache.clear()
+            yv, xv = meshgrid([torch.arange(hsize, device=device), torch.arange(wsize, device=device)])
+            grid = torch.stack((xv, yv), 2).view(1, hsize * wsize, 2).to(dtype)
+            row = torch.full((1, hsize * wsize), stride, dtype=dtype, device=device)
+            hit = cache[ck] = (grid, row)
+        return hit
+
+    def get_output_and_grid_nosync(self, output, k, stride, dtype, device):
+        """get_output_and_grid without host-to-device copies: grid and stride row come from the device cache."""
+        batch_size = output.shape[0]
+        n_ch = 5 + self.num_classes
+        hsize, wsize = output.shape[-2:]
+        grid, row = self._device_grid(("train", k), hsize, wsize, stride, dtype, device)
+        self.grids[k] = grid.view(1, 1, hsize, wsize, 2)
+        output = output.view(batch_size, 1, n_ch, hsize, wsize)
+        output = output.permute(0, 1, 3, 4, 2).reshape(
+            batch_size, hsize * wsize, -1
+        )
+        output[..., :2] = (output[..., :2] + grid) * stride
+        output[..., 2:4] = torch.exp(output[..., 2:4]) * stride
+        return output, grid, row
+
+    def decode_outputs_nosync(self, outputs, dtype, device):
+        """decode_outputs with grids and strides built (and cached) on the device."""
+        grids = []
+        strides = []
+        for k, ((hsize, wsize), stride) in enumerate(zip(self.hw, self.strides)):
+            grid, row = self._device_grid(("decode", k), int(hsize), int(wsize), stride, dtype, device)
+            grids.append(grid)
+            strides.append(row.unsqueeze(-1))
+        grids = torch.cat(grids, dim=1)
+        strides = torch.cat(strides, dim=1)
+
+        outputs = torch.cat([
+            (outputs[..., 0:2] + grids) * strides,
+            torch.exp(outputs[..., 2:4]) * strides,
+            outputs[..., 4:]
+        ], dim=-1)
+        return outputs
 
     def decode_outputs(self, outputs, dtype):
         grids = []
@@ -507,7 +566,10 @@ class YOLOXHead(nn.Module):
             del p
 
         cost = cls_cost + 3.0 * ious_loss + float(1e6) * (~is_in_centers)
-        inf = torch.tensor(float("inf"), device=dev)
+        if perf.on("head_nosync"):
+            inf = cost.new_full((), float("inf"))  # fill kernel on the device, no host-to-device copy
+        else:
+            inf = torch.tensor(float("inf"), device=dev)
         cost = torch.where(keep, cost, inf)  # non-candidates and padded gts never match
         del cls_cost, ious_loss
 
