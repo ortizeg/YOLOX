@@ -429,8 +429,8 @@ to eager.
 each capture's private-pool memory stays committed, and the next size's built-in eager warm-up then needs a second
 copy of the activations. Fix: warm up every size eagerly first (also does the cuDNN autotuning), release that cache,
 then capture all sizes largest-first with no further warm-up into one shared pool. 11 sizes (640–960) at batch 16:
-**25 s, +13.7 GiB**, about what the 960 graph alone needs. (8 GPU-hours of training per extra minute of capture is
-irrelevant; on a 24 GB card the rest of the step must fit in the remaining ~10 GB.)
+**25 s, +13.7 GiB**, about what the 960 graph alone needs. On a 24 GB card the rest of the step must fit in the
+remaining ~10 GB.
 
 | check | V (= N6 set) | V + `cuda_graphs` |
 |---|---:|---:|
