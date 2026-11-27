@@ -387,8 +387,9 @@ weights from the finished Objects365 run, `perf` = the live run's set + the five
 **(a) Memory under a 24 GiB cap (the RTX 4090 question).** No OOM on any rank. Peak reserved per rank: 10.3–10.8 GiB
 with the recipe's multiscale sizes (80 iterations), 11.4–13.2 GiB pinned at 800 px (40 iterations). So the
 Objects365 recipe fits a 24 GB RTX 4090 with about 11 GB of headroom. Per the hardware decision above, **8× RTX 4090 is
-the default for the next Objects365 run** (L40S stays the fallback). The 22.2 / 24.6 GB seen in the 4090 benchmark was
-the caching allocator's total footprint under nvidia-smi, not live tensors.
+the default for the next Objects365 run** (L40S stays the fallback). The 22.2 / 24.6 GB seen in the 4090 benchmark is
+the nvidia-smi figure (process total, incl. CUDA context and allocator cache), not the allocator peak measured here;
+the two runs were not set up to be compared directly, so check nvidia-smi in the first minutes of the next 4090 run.
 
 **(b) Host syncs per training step (rank 0, 20 audited iterations after 30 warm-up): 3.5.**
 
