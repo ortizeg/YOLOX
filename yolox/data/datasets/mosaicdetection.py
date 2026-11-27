@@ -41,7 +41,7 @@ class MosaicDetection(Dataset):
         self, dataset, img_size, mosaic=True, preproc=None,
         degrees=10.0, translate=0.1, mosaic_scale=(0.5, 1.5),
         mixup_scale=(0.5, 1.5), shear=2.0, enable_mixup=True,
-        mosaic_prob=1.0, mixup_prob=1.0, *args
+        mosaic_prob=1.0, mixup_prob=1.0, *args, reuse_pool=64, reuse_prob=1.0
     ):
         """
 
@@ -71,6 +71,34 @@ class MosaicDetection(Dataset):
         self.mosaic_prob = mosaic_prob
         self.mixup_prob = mixup_prob
         self.local_rank = get_local_rank()
+        # decode_reuse: ring buffer of (img, labels, img_info, img_id) from fresh decodes in this worker
+        self.reuse_pool = int(reuse_pool)
+        self.reuse_prob = float(reuse_prob)
+        self._pool = []
+        self._pool_next = 0
+
+    def _push(self, item):
+        if len(self._pool) < self.reuse_pool:
+            self._pool.append(item)
+        else:
+            self._pool[self._pool_next] = item
+        self._pool_next = (self._pool_next + 1) % self.reuse_pool
+
+    def _pull_partner(self, index, need_labels=False):
+        """A mosaic or mixup partner. With decode_reuse, usually a recently decoded image from this worker's pool
+        (no JPEG decode); otherwise, or while the pool is empty, a fresh pull of `index` that then joins the pool.
+        Pool images are only read downstream (resize / slice copies), so sharing them is safe."""
+        if not perf.on("decode_reuse"):
+            return self._dataset.pull_item(index)
+        if self._pool and random.random() < self.reuse_prob:
+            cands = [e for e in self._pool if e[1].size] if need_labels else self._pool
+            if cands:
+                img, labels, info, img_id = random.choice(cands)
+                return img, labels.copy(), info, img_id
+        item = self._dataset.pull_item(index)
+        if self.reuse_pool > 0:
+            self._push(item)
+        return item
 
     def __len__(self):
         return len(self._dataset)
@@ -89,8 +117,12 @@ class MosaicDetection(Dataset):
             # 3 additional image indices
             indices = [idx] + [random.randint(0, len(self._dataset) - 1) for _ in range(3)]
 
+            primary = None
             for i_mosaic, index in enumerate(indices):
-                img, _labels, _, img_id = self._dataset.pull_item(index)
+                if i_mosaic == 0:
+                    img, _labels, _, img_id = primary = self._dataset.pull_item(index)
+                else:
+                    img, _labels, _, img_id = self._pull_partner(index)
                 h0, w0 = img.shape[:2]  # orig hw
                 scale = min(1. * input_h / h0, 1. * input_w / w0)
                 new_wh = (int(w0 * scale), int(h0 * scale))
@@ -144,6 +176,8 @@ class MosaicDetection(Dataset):
                 and random.random() < self.mixup_prob
             ):
                 mosaic_img, mosaic_labels = self.mixup(mosaic_img, mosaic_labels, self.input_dim)
+            if perf.on("decode_reuse") and self.reuse_pool > 0:
+                self._push(primary)  # after this sample, so an image is never its own partner
             mix_img, padded_labels = self.preproc(mosaic_img, mosaic_labels, self.input_dim)
             img_info = (mix_img.shape[1], mix_img.shape[0])
             if perf.on("hwc_transport") and mix_img.dtype == np.uint8 and mix_img.shape[-1] == 3:
@@ -168,7 +202,7 @@ class MosaicDetection(Dataset):
         while len(cp_labels) == 0:
             cp_index = random.randint(0, self.__len__() - 1)
             cp_labels = self._dataset.load_anno(cp_index)
-        img, cp_labels, _, _ = self._dataset.pull_item(cp_index)
+        img, cp_labels, _, _ = self._pull_partner(cp_index, need_labels=True)
 
         if len(img.shape) == 3:
             cp_img = np.ones((input_dim[0], input_dim[1], 3), dtype=np.uint8) * 114

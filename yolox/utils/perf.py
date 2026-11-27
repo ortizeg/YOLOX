@@ -44,6 +44,8 @@ TIER = {
     "fast_anno": "A",  # P5: annotation parsing with Python min/max instead of np.max/np.min on tuples
     "simota_nosync": "B",  # P6: batched SimOTA with 2 host syncs per step instead of ~9 (needs simota_batch)
     "resize_nosync": "A",  # P7: multiscale size without a CUDA tensor/.item() (gloo broadcast, no NCCL barrier)
+    # pass 4 (tier C: changes the training data distribution, needs accuracy runs)
+    "decode_reuse": "C",  # Q3: mosaic/mixup partners drawn from a per-worker pool of recently decoded images
 }
 
 _FLAGS: set[str] = set()
