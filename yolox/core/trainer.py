@@ -181,7 +181,9 @@ class Trainer:
                 inps = inps.contiguous(memory_format=torch.channels_last)
         data_end_time = time.time()
 
-        with stage("forward"), torch.amp.autocast("cuda", enabled=self.amp_training, dtype=self.amp_dtype):
+        # cuda_graphs: the graphs were captured without the autocast weight-cast cache, so the eager part runs without it
+        with stage("forward"), torch.amp.autocast("cuda", enabled=self.amp_training, dtype=self.amp_dtype,
+                                                  cache_enabled=not perf.on("cuda_graphs")):
             outputs = self.model(inps, targets)
 
         loss = outputs["total_loss"]
@@ -244,6 +246,13 @@ class Trainer:
 
         # value of epoch will be set in `resume_train`
         model = self.resume_train(model)
+
+        if perf.on("cuda_graphs") and not perf.on("compile") and not getattr(self.args, "compile", False):
+            # after channels_last and the checkpoint load, before the data loader and DDP (nothing else on the GPU)
+            from yolox.utils import cuda_graphs
+            model.train()
+            cuda_graphs.capture(model, cuda_graphs.train_sizes(self.exp), self.args.batch_size // get_world_size(),
+                                self.data_type, self.channels_last, self.amp_dtype if self.amp_training else None)
 
         # data related init
         self.no_aug = self.start_epoch >= self.max_epoch - self.exp.no_aug_epochs

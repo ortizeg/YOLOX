@@ -140,7 +140,19 @@ class YOLOXHead(nn.Module):
             b.data.fill_(-math.log((1 - prior_prob) / prior_prob))
             conv.bias = torch.nn.Parameter(b.view(-1), requires_grad=True)
 
-    def forward(self, xin, labels=None, imgs=None):
+    def raw_outputs(self, xin):
+        """Training-mode per-level ``cat([reg, obj, cls], 1)``: the convs only (the CUDA-graph trunk, ``cuda_graphs``)."""
+        outs = []
+        for k, (cls_conv, reg_conv, x) in enumerate(zip(self.cls_convs, self.reg_convs, xin)):
+            x = self.stems[k](x)
+            cls_output = self.cls_preds[k](cls_conv(x))
+            reg_feat = reg_conv(x)
+            outs.append(torch.cat([self.reg_preds[k](reg_feat), self.obj_preds[k](reg_feat), cls_output], 1))
+        return outs
+
+    def forward(self, xin, labels=None, imgs=None, raw=None):
+        """``raw``: per-level outputs of ``raw_outputs`` already computed (training only; ``xin`` then only gives the
+        dtype and device, and is ``raw`` itself)."""
         outputs = []
         origin_preds = []
         x_shifts = []
@@ -150,19 +162,24 @@ class YOLOXHead(nn.Module):
         for k, (cls_conv, reg_conv, stride_this_level, x) in enumerate(
             zip(self.cls_convs, self.reg_convs, self.strides, xin)
         ):
-            x = self.stems[k](x)
-            cls_x = x
-            reg_x = x
+            if raw is not None:
+                output = raw[k]
+                reg_output = output[:, :4].contiguous() if self.use_l1 else None  # == the reg_preds output
+            else:
+                x = self.stems[k](x)
+                cls_x = x
+                reg_x = x
 
-            cls_feat = cls_conv(cls_x)
-            cls_output = self.cls_preds[k](cls_feat)
+                cls_feat = cls_conv(cls_x)
+                cls_output = self.cls_preds[k](cls_feat)
 
-            reg_feat = reg_conv(reg_x)
-            reg_output = self.reg_preds[k](reg_feat)
-            obj_output = self.obj_preds[k](reg_feat)
+                reg_feat = reg_conv(reg_x)
+                reg_output = self.reg_preds[k](reg_feat)
+                obj_output = self.obj_preds[k](reg_feat)
 
             if self.training:
-                output = torch.cat([reg_output, obj_output, cls_output], 1)
+                if raw is None:
+                    output = torch.cat([reg_output, obj_output, cls_output], 1)
                 if perf.on("head_nosync"):
                     output, grid, stride_row = self.get_output_and_grid_nosync(
                         output, k, stride_this_level, xin[0].dtype, xin[0].device

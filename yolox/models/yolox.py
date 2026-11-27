@@ -4,6 +4,7 @@
 
 import torch.nn as nn
 
+from yolox.utils import perf
 from yolox.utils.step_audit import stage
 
 from .yolo_head import YOLOXHead
@@ -28,6 +29,17 @@ class YOLOX(nn.Module):
         self.head = head
 
     def forward(self, x, targets=None):
+        if self.training and perf.on("cuda_graphs"):
+            from yolox.utils import cuda_graphs
+            trunk = cuda_graphs.lookup(self, x)
+            if trunk is not None:  # backbone + neck + head convs replayed as one CUDA graph (forward and backward)
+                assert targets is not None
+                with stage("trunk_graph"):
+                    raw = list(trunk(x))
+                with stage("head"):
+                    loss, iou_loss, conf_loss, cls_loss, l1_loss, num_fg = self.head(raw, targets, x, raw=raw)
+                return {"total_loss": loss, "iou_loss": iou_loss, "l1_loss": l1_loss, "conf_loss": conf_loss,
+                        "cls_loss": cls_loss, "num_fg": num_fg}
         # fpn output content features of [dark3, dark4, dark5]
         with stage("backbone_neck"):
             fpn_outs = self.backbone(x)
