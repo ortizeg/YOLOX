@@ -1,0 +1,1 @@
+subset images 69519 annotations 1356085 boxes/img 19.5

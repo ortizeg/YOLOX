@@ -1,0 +1,3 @@
+perf_8g_w8 wall 97 peak_used_MiB 50142 first_iter_s 50 oom 0
+reuse_8g_w8 wall 88 peak_used_MiB 52737 first_iter_s 40 oom 0
+reuse_8g_w12 wall 97 peak_used_MiB 66211 first_iter_s 50 oom 0
