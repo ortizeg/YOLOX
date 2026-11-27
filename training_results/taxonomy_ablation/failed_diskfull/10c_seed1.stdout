@@ -1,0 +1,820 @@
+ WARN Encountered 1 warning while parsing the manifest:
+  ⚠ The `project` field is deprecated. Use `workspace` instead.
+   ╭─[/workspace/YOLOX/pixi.toml:1:1]
+ 1 │ ╭─▶ [project]
+ 2 │ │   name = "yolox"
+ 3 │ │   version = "0.3.1"
+ 4 │ │   description = "YOLOX object detection with DINO-X improvements"
+ 5 │ │   channels = ["nvidia", "conda-forge", "pytorch"]
+ 6 │ ├─▶ platforms = ["linux-64"]
+   · ╰──── replace this with 'workspace'
+ 7 │     
+   ╰────
+
+2026-10-28 00:46:56.925 | INFO     | yolox.data.datasets.datasets_wrapper:cache_images:211 - 0.5GB RAM required, 670.4/755.7GB RAM available, Since the first thing we do is cache, there is no guarantee that the remaining memory space is sufficient
+2026-10-28 00:46:56.925 | INFO     | yolox.data.datasets.datasets_wrapper:cache_images:221 - You are using cached images in RAM to accelerate training!
+2026-10-28 00:46:56.925 | INFO     | yolox.data.datasets.datasets_wrapper:cache_images:237 - Caching images...
+This might take some time for your dataset
+loading annotations into memory...
+Done (t=0.26s)
+creating index...
+index created!
+  0%|          | 0/464 [00:00<?, ?it/s]Caching images (0.1/0.5GB ram):  16%|█▋        | 76/464 [00:00<00:00, 752.27it/s]Caching images (0.2/0.5GB ram):  36%|███▌      | 165/464 [00:00<00:00, 832.90it/s]Caching images (0.3/0.5GB ram):  55%|█████▌    | 256/464 [00:00<00:00, 866.47it/s]Caching images (0.3/0.5GB ram):  75%|███████▍  | 347/464 [00:00<00:00, 883.16it/s]Caching images (0.4/0.5GB ram):  94%|█████████▍| 436/464 [00:00<00:00, 878.69it/s]Caching images (0.5/0.5GB ram): 100%|██████████| 464/464 [00:00<00:00, 847.21it/s]
+/workspace/YOLOX/tools/train.py:118: UserWarning: You have chosen to seed training. This will turn on the CUDNN deterministic setting, which can slow down your training considerably! You may see unexpected behavior when restarting from checkpoints.
+  warnings.warn(
+2026-10-28 00:46:57 | INFO     | yolox.core.trainer:138 - args: Namespace(experiment_name='10c_seed1', name=None, dist_backend='nccl', dist_url=None, batch_size=16, devices=1, exp_file='exps/default/yolox_m_basketball_adamw.py', resume=False, ckpt='/workspace/yolox_m.pth', start_epoch=None, num_machines=1, machine_rank=0, fp16=True, bf16=False, compile=False, cache='ram', occupy=True, logger='tensorboard', opts=['seed', '1'])
+2026-10-28 00:46:57 | INFO     | yolox.core.trainer:139 - exp value:
+╒════════════════════╤═════════════════════════════════════════════════════════════════╕
+│ keys               │ values                                                          │
+╞════════════════════╪═════════════════════════════════════════════════════════════════╡
+│ seed               │ '1'                                                             │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ output_dir         │ './YOLOX_outputs'                                               │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ print_interval     │ 10                                                              │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ eval_interval      │ 5                                                               │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ dataset            │ <yolox.data.datasets.coco.COCODataset object at 0x7f904c735150> │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ num_classes        │ 10                                                              │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ depth              │ 0.67                                                            │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ width              │ 0.75                                                            │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ act                │ 'silu'                                                          │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ data_num_workers   │ 4                                                               │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ input_size         │ (800, 800)                                                      │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ multiscale_range   │ 5                                                               │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ data_dir           │ 'datasets/basketball'                                           │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ train_ann          │ 'train.json'                                                    │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ val_ann            │ 'valid.json'                                                    │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ test_ann           │ 'test.json'                                                     │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ mosaic_prob        │ 1.0                                                             │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ mixup_prob         │ 0.5                                                             │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ hsv_prob           │ 1.0                                                             │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ flip_prob          │ 0.5                                                             │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ degrees            │ 10.0                                                            │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ translate          │ 0.2                                                             │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ mosaic_scale       │ (0.5, 1.5)                                                      │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ enable_mixup       │ True                                                            │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ mixup_scale        │ (0.5, 1.5)                                                      │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ shear              │ 2.0                                                             │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ warmup_epochs      │ 10                                                              │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ max_epoch          │ 200                                                             │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ warmup_lr          │ 0                                                               │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ min_lr_ratio       │ 0.05                                                            │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ basic_lr_per_img   │ 6.25e-06                                                        │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ scheduler          │ 'yoloxwarmcos'                                                  │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ no_aug_epochs      │ 30                                                              │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ ema                │ True                                                            │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ weight_decay       │ 0.0005                                                          │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ momentum           │ 0.9                                                             │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ save_history_ckpt  │ True                                                            │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ exp_name           │ 'yolox_m_basketball_adamw'                                      │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ test_size          │ (800, 800)                                                      │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ test_conf          │ 0.01                                                            │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ nmsthre            │ 0.65                                                            │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ adamw_lr           │ 0.0004                                                          │
+├────────────────────┼─────────────────────────────────────────────────────────────────┤
+│ adamw_weight_decay │ 0.05                                                            │
+╘════════════════════╧═════════════════════════════════════════════════════════════════╛
+2026-10-28 00:46:58 | INFO     | yolox.core.trainer:144 - Model Summary: Params: 25.29M, Gflops: 115.24
+2026-10-28 00:46:58 | INFO     | yolox.core.trainer:354 - loading checkpoint for fine tuning
+2026-10-28 00:46:59 | WARNING  | yolox.utils.checkpoint:24 - Shape of head.cls_preds.0.weight in checkpoint is torch.Size([80, 192, 1, 1]), while shape of head.cls_preds.0.weight in model is torch.Size([10, 192, 1, 1]).
+2026-10-28 00:46:59 | WARNING  | yolox.utils.checkpoint:24 - Shape of head.cls_preds.0.bias in checkpoint is torch.Size([80]), while shape of head.cls_preds.0.bias in model is torch.Size([10]).
+2026-10-28 00:46:59 | WARNING  | yolox.utils.checkpoint:24 - Shape of head.cls_preds.1.weight in checkpoint is torch.Size([80, 192, 1, 1]), while shape of head.cls_preds.1.weight in model is torch.Size([10, 192, 1, 1]).
+2026-10-28 00:46:59 | WARNING  | yolox.utils.checkpoint:24 - Shape of head.cls_preds.1.bias in checkpoint is torch.Size([80]), while shape of head.cls_preds.1.bias in model is torch.Size([10]).
+2026-10-28 00:46:59 | WARNING  | yolox.utils.checkpoint:24 - Shape of head.cls_preds.2.weight in checkpoint is torch.Size([80, 192, 1, 1]), while shape of head.cls_preds.2.weight in model is torch.Size([10, 192, 1, 1]).
+2026-10-28 00:46:59 | WARNING  | yolox.utils.checkpoint:24 - Shape of head.cls_preds.2.bias in checkpoint is torch.Size([80]), while shape of head.cls_preds.2.bias in model is torch.Size([10]).
+2026-10-28 00:46:59 | INFO     | yolox.core.trainer:168 - init prefetcher, this might take one minute or less...
+2026-10-28 00:47:05 | INFO     | yolox.data.datasets.coco:63 - loading annotations into memory...
+2026-10-28 00:47:05 | INFO     | yolox.data.datasets.coco:63 - Done (t=0.01s)
+2026-10-28 00:47:05 | INFO     | pycocotools.coco:86 - creating index...
+2026-10-28 00:47:05 | INFO     | pycocotools.coco:86 - index created!
+2026-10-28 00:47:05 | INFO     | yolox.core.trainer:207 - Training start...
+2026-10-28 00:47:05 | INFO     | yolox.core.trainer:208 - 
+YOLOX(
+  (backbone): YOLOPAFPN(
+    (backbone): CSPDarknet(
+      (stem): Focus(
+        (conv): BaseConv(
+          (conv): Conv2d(12, 48, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+          (bn): BatchNorm2d(48, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+          (act): SiLU(inplace=True)
+        )
+      )
+      (dark2): Sequential(
+        (0): BaseConv(
+          (conv): Conv2d(48, 96, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+          (bn): BatchNorm2d(96, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+          (act): SiLU(inplace=True)
+        )
+        (1): CSPLayer(
+          (conv1): BaseConv(
+            (conv): Conv2d(96, 48, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(48, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (conv2): BaseConv(
+            (conv): Conv2d(96, 48, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(48, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (conv3): BaseConv(
+            (conv): Conv2d(96, 96, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(96, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (m): Sequential(
+            (0): Bottleneck(
+              (conv1): BaseConv(
+                (conv): Conv2d(48, 48, kernel_size=(1, 1), stride=(1, 1), bias=False)
+                (bn): BatchNorm2d(48, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (conv2): BaseConv(
+                (conv): Conv2d(48, 48, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(48, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+            (1): Bottleneck(
+              (conv1): BaseConv(
+                (conv): Conv2d(48, 48, kernel_size=(1, 1), stride=(1, 1), bias=False)
+                (bn): BatchNorm2d(48, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (conv2): BaseConv(
+                (conv): Conv2d(48, 48, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(48, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+          )
+        )
+      )
+      (dark3): Sequential(
+        (0): BaseConv(
+          (conv): Conv2d(96, 192, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+          (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+          (act): SiLU(inplace=True)
+        )
+        (1): CSPLayer(
+          (conv1): BaseConv(
+            (conv): Conv2d(192, 96, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(96, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (conv2): BaseConv(
+            (conv): Conv2d(192, 96, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(96, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (conv3): BaseConv(
+            (conv): Conv2d(192, 192, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (m): Sequential(
+            (0): Bottleneck(
+              (conv1): BaseConv(
+                (conv): Conv2d(96, 96, kernel_size=(1, 1), stride=(1, 1), bias=False)
+                (bn): BatchNorm2d(96, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (conv2): BaseConv(
+                (conv): Conv2d(96, 96, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(96, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+            (1): Bottleneck(
+              (conv1): BaseConv(
+                (conv): Conv2d(96, 96, kernel_size=(1, 1), stride=(1, 1), bias=False)
+                (bn): BatchNorm2d(96, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (conv2): BaseConv(
+                (conv): Conv2d(96, 96, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(96, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+            (2): Bottleneck(
+              (conv1): BaseConv(
+                (conv): Conv2d(96, 96, kernel_size=(1, 1), stride=(1, 1), bias=False)
+                (bn): BatchNorm2d(96, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (conv2): BaseConv(
+                (conv): Conv2d(96, 96, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(96, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+            (3): Bottleneck(
+              (conv1): BaseConv(
+                (conv): Conv2d(96, 96, kernel_size=(1, 1), stride=(1, 1), bias=False)
+                (bn): BatchNorm2d(96, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (conv2): BaseConv(
+                (conv): Conv2d(96, 96, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(96, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+            (4): Bottleneck(
+              (conv1): BaseConv(
+                (conv): Conv2d(96, 96, kernel_size=(1, 1), stride=(1, 1), bias=False)
+                (bn): BatchNorm2d(96, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (conv2): BaseConv(
+                (conv): Conv2d(96, 96, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(96, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+            (5): Bottleneck(
+              (conv1): BaseConv(
+                (conv): Conv2d(96, 96, kernel_size=(1, 1), stride=(1, 1), bias=False)
+                (bn): BatchNorm2d(96, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (conv2): BaseConv(
+                (conv): Conv2d(96, 96, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(96, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+          )
+        )
+      )
+      (dark4): Sequential(
+        (0): BaseConv(
+          (conv): Conv2d(192, 384, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+          (bn): BatchNorm2d(384, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+          (act): SiLU(inplace=True)
+        )
+        (1): CSPLayer(
+          (conv1): BaseConv(
+            (conv): Conv2d(384, 192, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (conv2): BaseConv(
+            (conv): Conv2d(384, 192, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (conv3): BaseConv(
+            (conv): Conv2d(384, 384, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(384, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (m): Sequential(
+            (0): Bottleneck(
+              (conv1): BaseConv(
+                (conv): Conv2d(192, 192, kernel_size=(1, 1), stride=(1, 1), bias=False)
+                (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (conv2): BaseConv(
+                (conv): Conv2d(192, 192, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+            (1): Bottleneck(
+              (conv1): BaseConv(
+                (conv): Conv2d(192, 192, kernel_size=(1, 1), stride=(1, 1), bias=False)
+                (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (conv2): BaseConv(
+                (conv): Conv2d(192, 192, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+            (2): Bottleneck(
+              (conv1): BaseConv(
+                (conv): Conv2d(192, 192, kernel_size=(1, 1), stride=(1, 1), bias=False)
+                (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (conv2): BaseConv(
+                (conv): Conv2d(192, 192, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+            (3): Bottleneck(
+              (conv1): BaseConv(
+                (conv): Conv2d(192, 192, kernel_size=(1, 1), stride=(1, 1), bias=False)
+                (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (conv2): BaseConv(
+                (conv): Conv2d(192, 192, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+            (4): Bottleneck(
+              (conv1): BaseConv(
+                (conv): Conv2d(192, 192, kernel_size=(1, 1), stride=(1, 1), bias=False)
+                (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (conv2): BaseConv(
+                (conv): Conv2d(192, 192, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+            (5): Bottleneck(
+              (conv1): BaseConv(
+                (conv): Conv2d(192, 192, kernel_size=(1, 1), stride=(1, 1), bias=False)
+                (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (conv2): BaseConv(
+                (conv): Conv2d(192, 192, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+          )
+        )
+      )
+      (dark5): Sequential(
+        (0): BaseConv(
+          (conv): Conv2d(384, 768, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+          (bn): BatchNorm2d(768, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+          (act): SiLU(inplace=True)
+        )
+        (1): SPPBottleneck(
+          (conv1): BaseConv(
+            (conv): Conv2d(768, 384, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(384, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (m): ModuleList(
+            (0): MaxPool2d(kernel_size=5, stride=1, padding=2, dilation=1, ceil_mode=False)
+            (1): MaxPool2d(kernel_size=9, stride=1, padding=4, dilation=1, ceil_mode=False)
+            (2): MaxPool2d(kernel_size=13, stride=1, padding=6, dilation=1, ceil_mode=False)
+          )
+          (conv2): BaseConv(
+            (conv): Conv2d(1536, 768, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(768, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+        )
+        (2): CSPLayer(
+          (conv1): BaseConv(
+            (conv): Conv2d(768, 384, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(384, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (conv2): BaseConv(
+            (conv): Conv2d(768, 384, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(384, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (conv3): BaseConv(
+            (conv): Conv2d(768, 768, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(768, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (m): Sequential(
+            (0): Bottleneck(
+              (conv1): BaseConv(
+                (conv): Conv2d(384, 384, kernel_size=(1, 1), stride=(1, 1), bias=False)
+                (bn): BatchNorm2d(384, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (conv2): BaseConv(
+                (conv): Conv2d(384, 384, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(384, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+            (1): Bottleneck(
+              (conv1): BaseConv(
+                (conv): Conv2d(384, 384, kernel_size=(1, 1), stride=(1, 1), bias=False)
+                (bn): BatchNorm2d(384, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+              (conv2): BaseConv(
+                (conv): Conv2d(384, 384, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+                (bn): BatchNorm2d(384, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+                (act): SiLU(inplace=True)
+              )
+            )
+          )
+        )
+      )
+    )
+    (upsample): Upsample(scale_factor=2.0, mode='nearest')
+    (lateral_conv0): BaseConv(
+      (conv): Conv2d(768, 384, kernel_size=(1, 1), stride=(1, 1), bias=False)
+      (bn): BatchNorm2d(384, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+      (act): SiLU(inplace=True)
+    )
+    (C3_p4): CSPLayer(
+      (conv1): BaseConv(
+        (conv): Conv2d(768, 192, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (conv2): BaseConv(
+        (conv): Conv2d(768, 192, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (conv3): BaseConv(
+        (conv): Conv2d(384, 384, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(384, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (m): Sequential(
+        (0): Bottleneck(
+          (conv1): BaseConv(
+            (conv): Conv2d(192, 192, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (conv2): BaseConv(
+            (conv): Conv2d(192, 192, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+        )
+        (1): Bottleneck(
+          (conv1): BaseConv(
+            (conv): Conv2d(192, 192, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (conv2): BaseConv(
+            (conv): Conv2d(192, 192, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+        )
+      )
+    )
+    (reduce_conv1): BaseConv(
+      (conv): Conv2d(384, 192, kernel_size=(1, 1), stride=(1, 1), bias=False)
+      (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+      (act): SiLU(inplace=True)
+    )
+    (C3_p3): CSPLayer(
+      (conv1): BaseConv(
+        (conv): Conv2d(384, 96, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(96, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (conv2): BaseConv(
+        (conv): Conv2d(384, 96, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(96, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (conv3): BaseConv(
+        (conv): Conv2d(192, 192, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (m): Sequential(
+        (0): Bottleneck(
+          (conv1): BaseConv(
+            (conv): Conv2d(96, 96, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(96, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (conv2): BaseConv(
+            (conv): Conv2d(96, 96, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            (bn): BatchNorm2d(96, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+        )
+        (1): Bottleneck(
+          (conv1): BaseConv(
+            (conv): Conv2d(96, 96, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(96, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (conv2): BaseConv(
+            (conv): Conv2d(96, 96, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            (bn): BatchNorm2d(96, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+        )
+      )
+    )
+    (bu_conv2): BaseConv(
+      (conv): Conv2d(192, 192, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+      (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+      (act): SiLU(inplace=True)
+    )
+    (C3_n3): CSPLayer(
+      (conv1): BaseConv(
+        (conv): Conv2d(384, 192, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (conv2): BaseConv(
+        (conv): Conv2d(384, 192, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (conv3): BaseConv(
+        (conv): Conv2d(384, 384, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(384, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (m): Sequential(
+        (0): Bottleneck(
+          (conv1): BaseConv(
+            (conv): Conv2d(192, 192, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (conv2): BaseConv(
+            (conv): Conv2d(192, 192, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+        )
+        (1): Bottleneck(
+          (conv1): BaseConv(
+            (conv): Conv2d(192, 192, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (conv2): BaseConv(
+            (conv): Conv2d(192, 192, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+        )
+      )
+    )
+    (bu_conv1): BaseConv(
+      (conv): Conv2d(384, 384, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1), bias=False)
+      (bn): BatchNorm2d(384, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+      (act): SiLU(inplace=True)
+    )
+    (C3_n4): CSPLayer(
+      (conv1): BaseConv(
+        (conv): Conv2d(768, 384, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(384, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (conv2): BaseConv(
+        (conv): Conv2d(768, 384, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(384, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (conv3): BaseConv(
+        (conv): Conv2d(768, 768, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(768, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (m): Sequential(
+        (0): Bottleneck(
+          (conv1): BaseConv(
+            (conv): Conv2d(384, 384, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(384, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (conv2): BaseConv(
+            (conv): Conv2d(384, 384, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            (bn): BatchNorm2d(384, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+        )
+        (1): Bottleneck(
+          (conv1): BaseConv(
+            (conv): Conv2d(384, 384, kernel_size=(1, 1), stride=(1, 1), bias=False)
+            (bn): BatchNorm2d(384, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+          (conv2): BaseConv(
+            (conv): Conv2d(384, 384, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+            (bn): BatchNorm2d(384, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+            (act): SiLU(inplace=True)
+          )
+        )
+      )
+    )
+  )
+  (head): YOLOXHead(
+    (cls_convs): ModuleList(
+      (0-2): 3 x Sequential(
+        (0): BaseConv(
+          (conv): Conv2d(192, 192, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+          (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+          (act): SiLU(inplace=True)
+        )
+        (1): BaseConv(
+          (conv): Conv2d(192, 192, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+          (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+          (act): SiLU(inplace=True)
+        )
+      )
+    )
+    (reg_convs): ModuleList(
+      (0-2): 3 x Sequential(
+        (0): BaseConv(
+          (conv): Conv2d(192, 192, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+          (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+          (act): SiLU(inplace=True)
+        )
+        (1): BaseConv(
+          (conv): Conv2d(192, 192, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+          (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+          (act): SiLU(inplace=True)
+        )
+      )
+    )
+    (cls_preds): ModuleList(
+      (0-2): 3 x Conv2d(192, 10, kernel_size=(1, 1), stride=(1, 1))
+    )
+    (reg_preds): ModuleList(
+      (0-2): 3 x Conv2d(192, 4, kernel_size=(1, 1), stride=(1, 1))
+    )
+    (obj_preds): ModuleList(
+      (0-2): 3 x Conv2d(192, 1, kernel_size=(1, 1), stride=(1, 1))
+    )
+    (stems): ModuleList(
+      (0): BaseConv(
+        (conv): Conv2d(192, 192, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (1): BaseConv(
+        (conv): Conv2d(384, 192, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+      (2): BaseConv(
+        (conv): Conv2d(768, 192, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        (bn): BatchNorm2d(192, eps=0.001, momentum=0.03, affine=True, track_running_stats=True)
+        (act): SiLU(inplace=True)
+      )
+    )
+    (l1_loss): L1Loss()
+    (bcewithlog_loss): BCEWithLogitsLoss()
+    (iou_loss): IOUloss()
+  )
+)
+2026-10-28 00:47:05 | INFO     | yolox.core.trainer:229 - ---> start train epoch1
+2026-10-28 00:47:11 | INFO     | yolox.core.trainer:286 - epoch: 1/200, iter: 10/29, gpu mem: 43595Mb, mem: 88.7Gb, iter_time: 0.554s, data_time: 0.034s, total_loss: 9.9, iou_loss: 2.6, l1_loss: 0.0, conf_loss: 4.3, cls_loss: 3.0, lr: 1.189e-07, size: 800, ETA: 0:53:27
+2026-10-28 00:47:22 | INFO     | yolox.core.trainer:286 - epoch: 1/200, iter: 20/29, gpu mem: 43595Mb, mem: 88.9Gb, iter_time: 1.150s, data_time: 0.759s, total_loss: 10.0, iou_loss: 2.5, l1_loss: 0.0, conf_loss: 4.4, cls_loss: 3.1, lr: 4.756e-07, size: 864, ETA: 1:22:04
+2026-10-28 00:47:32 | INFO     | yolox.core.trainer:418 - Save weights to ./YOLOX_outputs/10c_seed1
+2026-10-28 00:47:32 | ERROR    | yolox.core.trainer:85 - Exception in training: 
+2026-10-28 00:47:32 | INFO     | yolox.core.trainer:211 - Training of experiment is done and the best AP is 0.00
+2026-10-28 00:47:32 | ERROR    | yolox.core.launch:98 - An error has been caught in function 'launch', process 'MainProcess' (6093), thread 'MainThread' (140263680661312):
+Traceback (most recent call last):
+
+  File "/workspace/YOLOX/.pixi/envs/default/lib/python3.11/site-packages/torch/serialization.py", line 850, in save
+    _save(
+    └ <function _save at 0x7f90f4557880>
+  File "/workspace/YOLOX/.pixi/envs/default/lib/python3.11/site-packages/torch/serialization.py", line 1114, in _save
+    zip_file.write_record(name, storage, num_bytes)
+    │        │            │     │        └ 1327104
+    │        │            │     └  217
+    │        │            │        167
+    │        │            │        134
+    │        │            │        186
+    │        │            │        28
+    │        │            │        36
+    │        │            │        88
+    │        │            │        186
+    │        │            │        125
+    │        │            │        216
+    │        │            │        10
+    │        │            │        187
+    │        │            │        207
+    │        │            │        219
+    │        │            │        215
+    │        │            │        57
+    │        │            │        192
+    │        │            │        8
+    │        │            │        58
+    │        │            │        59
+    │        │            │        41
+    │        │            │        178
+    │        │            │        25
+    │        │            │        187
+    │        │            │        237
+    │        │            │        110
+    │        │            │        7
+    │        │            │        59...
+    │        │            └ 'data/1003'
+    │        └ <instancemethod write_record at 0x7f91315333a0>
+    └ <torch.PyTorchFileWriter object at 0x7f8bf95afb70>
+
+RuntimeError: [enforce fail at inline_container.cc:778] . PytorchStreamWriter failed writing file data/1003: file write failed
+
+
+During handling of the above exception, another exception occurred:
+
+
+Traceback (most recent call last):
+
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+
+  File "/workspace/YOLOX/tools/train.py", line 150, in <module>
+    launch(
+    └ <function launch at 0x7f904bcf1620>
+
+> File "/workspace/YOLOX/yolox/core/launch.py", line 98, in launch
+    main_func(*args)
+    │          └ (╒════════════════════╤══════════════════════════════════════════════════════════════════════════════════════════════════════...
+    └ <function main at 0x7f904bcf1440>
+
+  File "/workspace/YOLOX/tools/train.py", line 130, in main
+    trainer.train()
+    │       └ <function Trainer.train at 0x7f904c700360>
+    └ <yolox.core.trainer.Trainer object at 0x7f8bf9bddad0>
+
+  File "/workspace/YOLOX/yolox/core/trainer.py", line 83, in train
+    self.train_in_epoch()
+    │    └ <function Trainer.train_in_epoch at 0x7f8bfa57d620>
+    └ <yolox.core.trainer.Trainer object at 0x7f8bf9bddad0>
+
+  File "/workspace/YOLOX/yolox/core/trainer.py", line 94, in train_in_epoch
+    self.after_epoch()
+    │    └ <function Trainer.after_epoch at 0x7f8bfa40afc0>
+    └ <yolox.core.trainer.Trainer object at 0x7f8bf9bddad0>
+
+  File "/workspace/YOLOX/yolox/core/trainer.py", line 249, in after_epoch
+    self.save_ckpt(ckpt_name="latest")
+    │    └ <function Trainer.save_ckpt at 0x7f8bfa40b380>
+    └ <yolox.core.trainer.Trainer object at 0x7f8bf9bddad0>
+
+  File "/workspace/YOLOX/yolox/core/trainer.py", line 426, in save_ckpt
+    save_checkpoint(
+    └ <function save_checkpoint at 0x7f903fe88360>
+
+  File "/workspace/YOLOX/yolox/utils/checkpoint.py", line 40, in save_checkpoint
+    torch.save(state, filename)
+    │     │    │      └ './YOLOX_outputs/10c_seed1/latest_ckpt.pth'
+    │     │    └ {'start_epoch': 1, 'model': OrderedDict([('backbone.backbone.stem.conv.conv.weight', tensor([[[[-3.7110e-04, -8.9052e-03,  3....
+    │     └ <function save at 0x7f90f4557740>
+    └ <module 'torch' from '/workspace/YOLOX/.pixi/envs/default/lib/python3.11/site-packages/torch/__init__.py'>
+
+  File "/workspace/YOLOX/.pixi/envs/default/lib/python3.11/site-packages/torch/serialization.py", line 849, in save
+    with _open_zipfile_writer(f) as opened_zipfile:
+         │                    │     └ <torch.PyTorchFileWriter object at 0x7f8bf95afb70>
+         │                    └ './YOLOX_outputs/10c_seed1/latest_ckpt.pth'
+         └ <function _open_zipfile_writer at 0x7f90f4557100>
+  File "/workspace/YOLOX/.pixi/envs/default/lib/python3.11/site-packages/torch/serialization.py", line 690, in __exit__
+    self.file_like.write_end_of_file()
+    │    │         └ <instancemethod write_end_of_file at 0x7f91315333d0>
+    │    └ <torch.PyTorchFileWriter object at 0x7f8bf95afb70>
+    └ <torch.serialization._open_zipfile_writer_file object at 0x7f906cdd30d0>
+
+RuntimeError: [enforce fail at inline_container.cc:603] . unexpected pos 511360 vs 511252
+/workspace/YOLOX/yolox/utils/metric.py:43: UserWarning: The torch.cuda.*DtypeTensor constructors are no longer recommended. It's best to use methods such as torch.tensor(data, dtype=*, device='cuda') to create tensors. (Triggered internally at ../torch/csrc/tensor/python_tensor.cpp:78.)
+  x = torch.cuda.FloatTensor(256, 1024, block_mem)

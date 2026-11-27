@@ -1,0 +1,15 @@
+WARNING: Unknown category 'basketball' (id=0), skipping
+  ok  10 annotated categories remapped in both arms
+[train]
+  ok  464 label files per arm
+  ok  same label file names in both arms
+  ok  annotations conserved: 9552
+  ok  5c labels == 10c labels with only class id remapped
+  ok  merged5 counts (4556, 465, 1221, 455, 2855)
+[valid]
+  ok  96 label files per arm
+  ok  same label file names in both arms
+  ok  annotations conserved: 1953
+  ok  5c labels == 10c labels with only class id remapped
+  ok  merged5 counts (951, 97, 287, 96, 522)
+ALL CHECKS PASSED

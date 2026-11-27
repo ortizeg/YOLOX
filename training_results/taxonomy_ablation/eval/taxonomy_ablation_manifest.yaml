@@ -1,0 +1,127 @@
+models:
+- name: YOLOX-M published
+  detector: yolox
+  root: yolox
+  onnx: basketball_m/yolox_m_basketball_640.onnx
+  labels: basketball_m/labels_mapping.json
+  predictions: x
+  expected_map5095: 0.672
+  input_size: 640
+  confidence_threshold: 0.01
+- name: YOLO26m published
+  detector: yolo26
+  root: yolox
+  onnx: yolo26m/model.onnx
+  labels: yolo26m/labels_mapping.json
+  predictions: x
+  expected_map5095: 0.716
+  input_size: 640
+  confidence_threshold: 0.01
+- name: YOLOX-M 10c_seed0
+  detector: yolox
+  root: yolox
+  onnx: taxonomy_ablation/10c_seed0/yolox_m_basketball_10c_seed0_640.onnx
+  labels: taxonomy_ablation/10c_seed0/labels_mapping.json
+  predictions: x
+  expected_map5095: 0.0
+  input_size: 640
+  confidence_threshold: 0.01
+- name: YOLO26m 10c_seed0
+  detector: yolo26
+  root: yolox
+  onnx: taxonomy_ablation/yolo26m/10c_seed0/yolo26m_basketball_10c_seed0_640.onnx
+  labels: taxonomy_ablation/yolo26m/10c_seed0/labels_mapping.json
+  predictions: x
+  expected_map5095: 0.0
+  input_size: 640
+  confidence_threshold: 0.01
+- name: YOLOX-M 10c_seed1
+  detector: yolox
+  root: yolox
+  onnx: taxonomy_ablation/10c_seed1/yolox_m_basketball_10c_seed1_640.onnx
+  labels: taxonomy_ablation/10c_seed1/labels_mapping.json
+  predictions: x
+  expected_map5095: 0.0
+  input_size: 640
+  confidence_threshold: 0.01
+- name: YOLO26m 10c_seed1
+  detector: yolo26
+  root: yolox
+  onnx: taxonomy_ablation/yolo26m/10c_seed1/yolo26m_basketball_10c_seed1_640.onnx
+  labels: taxonomy_ablation/yolo26m/10c_seed1/labels_mapping.json
+  predictions: x
+  expected_map5095: 0.0
+  input_size: 640
+  confidence_threshold: 0.01
+- name: YOLOX-M 10c_seed2
+  detector: yolox
+  root: yolox
+  onnx: taxonomy_ablation/10c_seed2/yolox_m_basketball_10c_seed2_640.onnx
+  labels: taxonomy_ablation/10c_seed2/labels_mapping.json
+  predictions: x
+  expected_map5095: 0.0
+  input_size: 640
+  confidence_threshold: 0.01
+- name: YOLO26m 10c_seed2
+  detector: yolo26
+  root: yolox
+  onnx: taxonomy_ablation/yolo26m/10c_seed2/yolo26m_basketball_10c_seed2_640.onnx
+  labels: taxonomy_ablation/yolo26m/10c_seed2/labels_mapping.json
+  predictions: x
+  expected_map5095: 0.0
+  input_size: 640
+  confidence_threshold: 0.01
+- name: YOLOX-M 5c_seed0
+  detector: yolox
+  root: yolox
+  onnx: taxonomy_ablation/5c_seed0/yolox_m_basketball_5c_seed0_640.onnx
+  labels: taxonomy_ablation/5c_seed0/labels_mapping.json
+  predictions: x
+  expected_map5095: 0.0
+  input_size: 640
+  confidence_threshold: 0.01
+- name: YOLO26m 5c_seed0
+  detector: yolo26
+  root: yolox
+  onnx: taxonomy_ablation/yolo26m/5c_seed0/yolo26m_basketball_5c_seed0_640.onnx
+  labels: taxonomy_ablation/yolo26m/5c_seed0/labels_mapping.json
+  predictions: x
+  expected_map5095: 0.0
+  input_size: 640
+  confidence_threshold: 0.01
+- name: YOLOX-M 5c_seed1
+  detector: yolox
+  root: yolox
+  onnx: taxonomy_ablation/5c_seed1/yolox_m_basketball_5c_seed1_640.onnx
+  labels: taxonomy_ablation/5c_seed1/labels_mapping.json
+  predictions: x
+  expected_map5095: 0.0
+  input_size: 640
+  confidence_threshold: 0.01
+- name: YOLO26m 5c_seed1
+  detector: yolo26
+  root: yolox
+  onnx: taxonomy_ablation/yolo26m/5c_seed1/yolo26m_basketball_5c_seed1_640.onnx
+  labels: taxonomy_ablation/yolo26m/5c_seed1/labels_mapping.json
+  predictions: x
+  expected_map5095: 0.0
+  input_size: 640
+  confidence_threshold: 0.01
+- name: YOLOX-M 5c_seed2
+  detector: yolox
+  root: yolox
+  onnx: taxonomy_ablation/5c_seed2/yolox_m_basketball_5c_seed2_640.onnx
+  labels: taxonomy_ablation/5c_seed2/labels_mapping.json
+  predictions: x
+  expected_map5095: 0.0
+  input_size: 640
+  confidence_threshold: 0.01
+- name: YOLO26m 5c_seed2
+  detector: yolo26
+  root: yolox
+  onnx: taxonomy_ablation/yolo26m/5c_seed2/yolo26m_basketball_5c_seed2_640.onnx
+  labels: taxonomy_ablation/yolo26m/5c_seed2/labels_mapping.json
+  predictions: x
+  expected_map5095: 0.0
+  input_size: 640
+  confidence_threshold: 0.01

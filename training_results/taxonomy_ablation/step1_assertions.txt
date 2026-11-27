@@ -1,0 +1,38 @@
+[train]
+  ok  source categories are basketball(0) + the 10 published classes in order
+  ok  identical image ids and order, 10c vs 5c (464 images)
+  ok  annotations conserved: 9552 == 9552
+  ok  same annotation ids and boxes in 10c and 5c (only category_id differs)
+  ok  merged5 player: 4556 == 4556
+  ok  merged5 ball: 465 == 465
+  ok  merged5 referee: 1221 == 1221
+  ok  merged5 rim: 455 == 455
+  ok  merged5 number: 2855 == 2855
+  ok  no classes outside merged5
+  same-class pairs IoU>0.9: 10c 0 {'player': 0, 'referee': 0, 'number': 0, 'ball': 0, 'player-in-possession': 0} | 5c 1 {'player': 1, 'referee': 0, 'number': 0, 'ball': 0}
+[valid]
+  ok  source categories are basketball(0) + the 10 published classes in order
+  ok  identical image ids and order, 10c vs 5c (96 images)
+  ok  annotations conserved: 1953 == 1953
+  ok  same annotation ids and boxes in 10c and 5c (only category_id differs)
+  ok  merged5 player: 951 == 951
+  ok  merged5 ball: 97 == 97
+  ok  merged5 referee: 287 == 287
+  ok  merged5 rim: 96 == 96
+  ok  merged5 number: 522 == 522
+  ok  no classes outside merged5
+  same-class pairs IoU>0.9: 10c 0 {'player': 0, 'referee': 0, 'number': 0} | 5c 1 {'player': 1, 'referee': 0, 'number': 0, 'ball': 0}
+[test]
+  ok  source categories are basketball(0) + the 10 published classes in order
+  ok  identical image ids and order, 10c vs 5c (94 images)
+  ok  annotations conserved: 1980 == 1980
+  ok  same annotation ids and boxes in 10c and 5c (only category_id differs)
+  ok  merged5 player: 944 == 944
+  ok  merged5 ball: 96 == 96
+  ok  merged5 referee: 280 == 280
+  ok  merged5 rim: 93 == 93
+  ok  merged5 number: 567 == 567
+  ok  no classes outside merged5
+  same-class pairs IoU>0.9: 10c 0 {'player': 0, 'referee': 0, 'number': 0} | 5c 1 {'player': 1, 'referee': 0, 'number': 0, 'ball': 0}
+IoU>0.9 same-class pair totals (10c, 5c): {'train': (0, 1), 'valid': (0, 1), 'test': (0, 1)}
+ALL CHECKS PASSED
