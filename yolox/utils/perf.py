@@ -47,6 +47,7 @@ TIER = {
     # pass 4 (tier C: changes the training data distribution, needs accuracy runs)
     "decode_reuse": "C",  # Q3: mosaic/mixup partners drawn from a per-worker pool of recently decoded images
     # pass 5
+    "lean_ckpt": "A",  # N9: `latest` every exp.save_interval epochs, last_epoch hardlinked, best/epoch_N weights-only
     "host_label_counts": "A",  # N5: per-image label counts from the CPU targets, not a GPU .tolist() sync in the loss
     "fused_optim_amp": "B",  # N3+N4: rebuild SGD/Adam/AdamW with fused=True in the constructor (sync-free GradScaler step)
     "head_nosync": "A",  # N2: head grids/stride rows built and cached on the device (per level and size), no H2D copies

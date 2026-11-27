@@ -31,6 +31,7 @@ from yolox.utils import (
     mem_usage,
     occupy_mem,
     save_checkpoint,
+    save_checkpoint_lean,
     setup_logger,
     synchronize
 )
@@ -290,7 +291,12 @@ class Trainer:
                 self.save_ckpt(ckpt_name="last_mosaic_epoch")
 
     def after_epoch(self):
-        self.save_ckpt(ckpt_name="latest")
+        if perf.on("lean_ckpt"):
+            # eval epochs write `latest` after the evaluation (evaluate_and_save_model); other epochs only when due
+            if (self.epoch + 1) % self.exp.eval_interval != 0 and self._latest_due():
+                self.save_ckpt_lean(full=["latest"])
+        else:
+            self.save_ckpt(ckpt_name="latest")
 
         if (self.epoch + 1) % self.exp.eval_interval == 0:
             all_reduce_norm(self.model)
@@ -441,9 +447,16 @@ class Trainer:
             logger.info("\n" + summary)
         synchronize()
 
-        self.save_ckpt("last_epoch", update_best_ckpt, ap=ap50_95)
-        if self.save_history_ckpt:
-            self.save_ckpt(f"epoch_{self.epoch + 1}", ap=ap50_95)
+        if perf.on("lean_ckpt"):
+            # one full write (`latest`, `last_epoch` hardlinked to it) + at most one weights-only write
+            # (`epoch_N` and/or `best`, hardlinked to each other)
+            lean = [f"epoch_{self.epoch + 1}"] if self.save_history_ckpt else []
+            lean += ["best"] if update_best_ckpt else []
+            self.save_ckpt_lean(full=["latest", "last_epoch"], lean=lean, update_best_ckpt=update_best_ckpt, ap=ap50_95)
+        else:
+            self.save_ckpt("last_epoch", update_best_ckpt, ap=ap50_95)
+            if self.save_history_ckpt:
+                self.save_ckpt(f"epoch_{self.epoch + 1}", ap=ap50_95)
 
         if self.args.logger == "mlflow":
             metadata = {
@@ -461,6 +474,54 @@ class Trainer:
         if w is not None:
             w.join()
             self._ckpt_writer = None
+
+    def _latest_due(self):
+        """``lean_ckpt``: is a non-eval epoch due to write ``latest``? Every ``exp.save_interval`` epochs (default 1:
+        every epoch, as the original), on the final epoch, and on the last epoch before the no-aug phase. Eval
+        epochs always write it (after the evaluation). A resume therefore repeats at most ``save_interval - 1``
+        epochs."""
+        n = int(getattr(self.exp, "save_interval", 1) or 1)
+        e = self.epoch + 1
+        return n <= 1 or e % n == 0 or e == self.max_epoch or e == self.max_epoch - self.exp.no_aug_epochs
+
+    def save_ckpt_lean(self, full=(), lean=(), update_best_ckpt=False, ap=None):
+        """``lean_ckpt`` save: ``full`` names carry the optimizer (resume points: ``latest``, ``last_epoch``),
+        ``lean`` names are weights-only (``epoch_N``, ``best``). See ``save_checkpoint_lean``."""
+        if self.rank != 0:
+            return
+        full, lean = list(full), list(lean)
+        save_model = self.ema_model.ema if self.use_model_ema else self.model
+        logger.info("Save weights to {} (full: {}, weights-only: {})".format(self.file_name, full, lean))
+        ckpt_state = {
+            "start_epoch": self.epoch + 1,
+            "model": save_model.state_dict(),
+            "best_ap": self.best_ap,
+            "curr_ap": ap,
+        }
+        if full:
+            ckpt_state["optimizer"] = self.optimizer.state_dict()
+        if perf.on("async_ckpt"):
+            self._join_ckpt_writer()
+            ckpt_state = _to_cpu(ckpt_state)
+            self._ckpt_writer = threading.Thread(
+                target=save_checkpoint_lean, args=(ckpt_state, self.file_name, full, lean), daemon=False)
+            self._ckpt_writer.start()
+        else:
+            save_checkpoint_lean(ckpt_state, self.file_name, full, lean)
+
+        if self.args.logger == "wandb":
+            for name in full + [n for n in lean if n != "best"]:
+                self.wandb_logger.save_checkpoint(
+                    self.file_name,
+                    name,
+                    update_best_ckpt and name == "last_epoch",
+                    metadata={
+                        "epoch": self.epoch + 1,
+                        "optimizer": self.optimizer.state_dict(),
+                        "best_ap": self.best_ap,
+                        "curr_ap": ap
+                    }
+                )
 
     def save_ckpt(self, ckpt_name, update_best_ckpt=False, ap=None):
         if self.rank == 0:

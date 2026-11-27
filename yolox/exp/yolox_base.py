@@ -103,6 +103,8 @@ class Exp(BaseExp):
         # save history checkpoint or not.
         # If set to False, yolox will only save latest and best ckpt.
         self.save_history_ckpt = True
+        # with perf flag lean_ckpt only: write latest_ckpt.pth every N epochs (eval and final epochs always)
+        self.save_interval = 1
         # name of experiment
         self.exp_name = os.path.split(os.path.realpath(__file__))[1].split(".")[0]
 
