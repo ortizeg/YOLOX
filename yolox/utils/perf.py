@@ -48,6 +48,9 @@ TIER = {
     "decode_reuse": "C",  # Q3: mosaic/mixup partners drawn from a per-worker pool of recently decoded images
     # pass 5
     "host_label_counts": "A",  # N5: per-image label counts from the CPU targets, not a GPU .tolist() sync in the loss
+    "fused_optim_amp": "B",  # N3+N4: rebuild SGD/Adam/AdamW with fused=True in the constructor (sync-free GradScaler step)
+    "head_nosync": "A",  # N2: head grids/stride rows built and cached on the device (per level and size), no H2D copies
+    "worker_cv2_threads": "A",  # N1: cv2.setNumThreads(0) + no OpenCL in spawned DDP ranks and every dataloader worker
 }
 
 _FLAGS: set[str] = set()

@@ -56,6 +56,9 @@ def run_set(exp, spec, init_sd, batches, iters, warmup, sizes, check):
     if perf.on("fused_optim") and isinstance(opt, (torch.optim.Adam, torch.optim.AdamW)):
         for g in opt.param_groups:
             g["fused"], g["foreach"] = True, False
+    if perf.on("fused_optim_amp"):
+        from yolox.utils.fused_optim import apply_flag
+        opt = apply_flag(opt, exp)
     for g in opt.param_groups:
         g["lr"] = 1e-4
     ema = ModelEMA(model, 0.9998)

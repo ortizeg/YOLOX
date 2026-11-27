@@ -12,6 +12,9 @@ import torch
 from torch.utils.data.dataloader import DataLoader as torchDataLoader
 from torch.utils.data.dataloader import default_collate
 
+from yolox.utils import perf
+from yolox.utils.setup_env import limit_cv2_threads
+
 from .samplers import YoloBatchSampler
 
 
@@ -111,3 +114,5 @@ def worker_init_reset_seed(worker_id):
     random.seed(seed)
     torch.set_rng_state(torch.manual_seed(seed).get_state())
     np.random.seed(seed)
+    if perf.on("worker_cv2_threads"):
+        limit_cv2_threads()

@@ -10,7 +10,7 @@ import cv2
 
 from .dist import get_world_size, is_main_process
 
-__all__ = ["configure_nccl", "configure_module", "configure_omp"]
+__all__ = ["configure_nccl", "configure_module", "configure_omp", "limit_cv2_threads"]
 
 
 def configure_nccl():
@@ -74,4 +74,16 @@ def configure_module(ulimit_value=8192):
         cv2.ocl.setUseOpenCL(False)
     except Exception:
         # cv2 version mismatch might rasie exceptions.
+        pass
+
+
+def limit_cv2_threads():
+    """The cv2 part of configure_module: no OpenCV thread pool, no OpenCL. configure_module only runs under
+    tools/train.py's __main__, so spawned DDP ranks (and the dataloader workers they fork) keep OpenCV's default
+    pool sized to every core. Used behind the ``worker_cv2_threads`` perf flag."""
+    try:
+        cv2.setNumThreads(0)
+        cv2.ocl.setUseOpenCL(False)
+    except Exception:
+        # cv2 version mismatch might raise exceptions.
         pass

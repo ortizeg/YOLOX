@@ -184,6 +184,9 @@ class Trainer:
         if perf.on("fused_optim") and isinstance(self.optimizer, (torch.optim.Adam, torch.optim.AdamW)):
             for g in self.optimizer.param_groups:  # same update rule, one fused kernel per group
                 g["fused"], g["foreach"] = True, False
+        if perf.on("fused_optim_amp"):  # before resume_train, so the fused optimizer is the one that loads state
+            from yolox.utils.fused_optim import apply_flag
+            self.optimizer = apply_flag(self.optimizer, self.exp)
 
         # value of epoch will be set in `resume_train`
         model = self.resume_train(model)
