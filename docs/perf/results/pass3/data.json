@@ -1,0 +1,60 @@
+{
+  "cpu_count": 96,
+  "input_size": [
+    800,
+    800
+  ],
+  "rows": [
+    {
+      "flags": "baseline",
+      "workers": 0,
+      "img_per_s": 14.570015020557783
+    },
+    {
+      "flags": "baseline",
+      "workers": 4,
+      "img_per_s": 52.8440173699025,
+      "bytes_per_batch": 122880000.0
+    },
+    {
+      "flags": "baseline",
+      "workers": 8,
+      "img_per_s": 105.20306076180286,
+      "bytes_per_batch": 122880000.0
+    },
+    {
+      "flags": "uint8_transport,skip_noop_resize,hsv_lut,int_mixup,class_map",
+      "workers": 0,
+      "img_per_s": 17.357333111297358
+    },
+    {
+      "flags": "uint8_transport,skip_noop_resize,hsv_lut,int_mixup,class_map",
+      "workers": 4,
+      "img_per_s": 61.201118330053866,
+      "bytes_per_batch": 30720000.0
+    },
+    {
+      "flags": "uint8_transport,skip_noop_resize,hsv_lut,int_mixup,class_map",
+      "workers": 8,
+      "img_per_s": 126.63089664730587,
+      "bytes_per_batch": 30720000.0
+    },
+    {
+      "flags": "uint8_transport,skip_noop_resize,hsv_lut,int_mixup,class_map,cv_flip,preproc_nopad,hwc_transport,int_indices",
+      "workers": 0,
+      "img_per_s": 18.76418620091413
+    },
+    {
+      "flags": "uint8_transport,skip_noop_resize,hsv_lut,int_mixup,class_map,cv_flip,preproc_nopad,hwc_transport,int_indices",
+      "workers": 4,
+      "img_per_s": 68.6686792297511,
+      "bytes_per_batch": 30720000.0
+    },
+    {
+      "flags": "uint8_transport,skip_noop_resize,hsv_lut,int_mixup,class_map,cv_flip,preproc_nopad,hwc_transport,int_indices",
+      "workers": 8,
+      "img_per_s": 144.67363498477656,
+      "bytes_per_batch": 30720000.0
+    }
+  ]
+}

@@ -1,0 +1,111 @@
+{
+  "gpu": "NVIDIA GeForce RTX 4090",
+  "torch": "2.5.1+cu124",
+  "batch": 16,
+  "sizes": [
+    640,
+    864,
+    736,
+    960,
+    832,
+    704,
+    928,
+    800,
+    672,
+    896,
+    768
+  ],
+  "iters": 60,
+  "warmup": 0,
+  "check": true,
+  "sets": {
+    "ref:nondeterministic,no_empty_cache,simota_batch,cls_cost_algebra,ema_foreach,fused_optim,sppf,focus_conv,channels_last,uint8_transport,skip_noop_resize,hsv_lut,int_mixup,class_map": {
+      "flags": [
+        "channels_last",
+        "class_map",
+        "cls_cost_algebra",
+        "ema_foreach",
+        "focus_conv",
+        "fused_optim",
+        "hsv_lut",
+        "int_mixup",
+        "no_empty_cache",
+        "nondeterministic",
+        "simota_batch",
+        "skip_noop_resize",
+        "sppf",
+        "uint8_transport"
+      ],
+      "sec_per_iter_median": 0.14968749749823473,
+      "sec_per_iter_mean": 0.164478512351828,
+      "img_per_s": 106.88935460484058,
+      "speedup_vs_baseline": 2.7168467159739085
+    },
+    "baseline": {
+      "flags": [],
+      "sec_per_iter_median": 0.4066779860004317,
+      "sec_per_iter_mean": 0.41653737315015554,
+      "img_per_s": 39.34316720055512,
+      "losses_identical": false,
+      "loss_max_rel_diff": 0.049665093355836264,
+      "weights_identical": false,
+      "weight_max_abs_diff": 41.010650634765625,
+      "speedup_vs_baseline": 1.0
+    },
+    "nondeterministic,no_empty_cache,simota_batch,cls_cost_algebra,ema_foreach,fused_optim,sppf,focus_conv,channels_last,uint8_transport,skip_noop_resize,hsv_lut,int_mixup,class_map,simota_nosync": {
+      "flags": [
+        "channels_last",
+        "class_map",
+        "cls_cost_algebra",
+        "ema_foreach",
+        "focus_conv",
+        "fused_optim",
+        "hsv_lut",
+        "int_mixup",
+        "no_empty_cache",
+        "nondeterministic",
+        "simota_batch",
+        "simota_nosync",
+        "skip_noop_resize",
+        "sppf",
+        "uint8_transport"
+      ],
+      "sec_per_iter_median": 0.1363964939955622,
+      "sec_per_iter_mean": 0.1417877699675349,
+      "img_per_s": 117.30506797719138,
+      "losses_identical": true,
+      "loss_max_rel_diff": 0.0,
+      "weights_identical": true,
+      "weight_max_abs_diff": 0.0,
+      "speedup_vs_baseline": 2.9815867995379954
+    },
+    "nondeterministic,no_empty_cache,simota_batch,cls_cost_algebra,ema_foreach,fused_optim,sppf,focus_conv,channels_last,uint8_transport,skip_noop_resize,hsv_lut,int_mixup,class_map,resize_nosync,int_indices": {
+      "flags": [
+        "channels_last",
+        "class_map",
+        "cls_cost_algebra",
+        "ema_foreach",
+        "focus_conv",
+        "fused_optim",
+        "hsv_lut",
+        "int_indices",
+        "int_mixup",
+        "no_empty_cache",
+        "nondeterministic",
+        "resize_nosync",
+        "simota_batch",
+        "skip_noop_resize",
+        "sppf",
+        "uint8_transport"
+      ],
+      "sec_per_iter_median": 0.13707295749918558,
+      "sec_per_iter_mean": 0.1422803587838037,
+      "img_per_s": 116.72616022817677,
+      "losses_identical": true,
+      "loss_max_rel_diff": 0.0,
+      "weights_identical": true,
+      "weight_max_abs_diff": 0.0,
+      "speedup_vs_baseline": 2.9668724846974137
+    }
+  }
+}

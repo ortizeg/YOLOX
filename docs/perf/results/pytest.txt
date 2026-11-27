@@ -1,0 +1,30 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.10, pytest-9.2.0, pluggy-1.7.0
+rootdir: /workspace/YOLOX
+configfile: pyproject.toml
+plugins: hypothesis-6.115.5
+collected 254 items
+
+tests/core/test_training_step.py ....                                    [  1%]
+tests/data/test_data_augment.py .......                                  [  4%]
+tests/data/test_dataloading.py .......                                   [  7%]
+tests/integration/test_coco_eval.py sss                                  [  8%]
+tests/models/test_darknet.py .........................                   [ 18%]
+tests/models/test_dinox_head.py ...................                      [ 25%]
+tests/models/test_losses.py .............                                [ 30%]
+tests/models/test_network_blocks.py .................................... [ 44%]
+..........................                                               [ 55%]
+tests/models/test_yolo_head.py ..............                            [ 60%]
+tests/models/test_yolo_pafpn.py ................                         [ 66%]
+tests/models/test_yolox.py .................                             [ 73%]
+tests/perf/test_perf_data.py .......                                     [ 76%]
+tests/perf/test_perf_model.py ...............                            [ 82%]
+tests/utils/test_boxes.py ................                               [ 88%]
+tests/utils/test_checkpoint.py ......                                    [ 90%]
+tests/utils/test_compat.py ..                                            [ 91%]
+tests/utils/test_ema.py .....                                            [ 93%]
+tests/utils/test_lr_scheduler.py ......                                  [ 96%]
+tests/utils/test_model_utils.py ...                                      [ 97%]
+tests/utils/test_model_utils_extended.py .......                         [100%]
+
+================== 251 passed, 3 skipped in 127.12s (0:02:07) ==================

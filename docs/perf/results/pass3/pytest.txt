@@ -1,0 +1,68 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.10, pytest-9.2.0, pluggy-1.7.0
+rootdir: /workspace/YOLOX
+configfile: pyproject.toml
+plugins: hypothesis-6.115.5
+collected 287 items
+
+tests/core/test_training_step.py ....                                    [  1%]
+tests/data/test_data_augment.py .......                                  [  3%]
+tests/data/test_dataloading.py .......                                   [  6%]
+tests/integration/test_coco_eval.py sss                                  [  7%]
+tests/models/test_darknet.py .........................                   [ 16%]
+tests/models/test_dinox_head.py ...................                      [ 22%]
+tests/models/test_losses.py .............                                [ 27%]
+tests/models/test_network_blocks.py .................................... [ 39%]
+..........................                                               [ 48%]
+tests/models/test_yolo_head.py ..............                            [ 53%]
+tests/models/test_yolo_pafpn.py ................                         [ 59%]
+tests/models/test_yolox.py .................                             [ 65%]
+tests/perf/test_perf_data.py ........                                    [ 67%]
+tests/perf/test_perf_io.py ..                                            [ 68%]
+tests/perf/test_perf_model.py ................                           [ 74%]
+tests/perf/test_perf_pass3.py FF...........................              [ 84%]
+tests/utils/test_boxes.py ................                               [ 89%]
+tests/utils/test_checkpoint.py ......                                    [ 91%]
+tests/utils/test_compat.py ..                                            [ 92%]
+tests/utils/test_ema.py .....                                            [ 94%]
+tests/utils/test_lr_scheduler.py ......                                  [ 96%]
+tests/utils/test_model_utils.py ...                                      [ 97%]
+tests/utils/test_model_utils_extended.py .......                         [100%]
+
+=================================== FAILURES ===================================
+__________________ test_pass3_pipeline_identical[size0-True] ___________________
+tests/perf/test_perf_pass3.py:50: in test_pass3_pipeline_identical
+    assert rinfo == ninfo
+E   assert (640, 3) == (640, 640)
+E     
+E     At index 1 diff: 3 != 640
+E     Use -v to get more diff
+----------------------------- Captured stdout call -----------------------------
+loading annotations into memory...
+Done (t=0.00s)
+creating index...
+index created!
+loading annotations into memory...
+Done (t=0.00s)
+creating index...
+index created!
+__________________ test_pass3_pipeline_identical[size1-True] ___________________
+tests/perf/test_perf_pass3.py:50: in test_pass3_pipeline_identical
+    assert rinfo == ninfo
+E   assert (800, 3) == (800, 800)
+E     
+E     At index 1 diff: 3 != 800
+E     Use -v to get more diff
+----------------------------- Captured stdout call -----------------------------
+loading annotations into memory...
+Done (t=0.00s)
+creating index...
+index created!
+loading annotations into memory...
+Done (t=0.00s)
+creating index...
+index created!
+=========================== short test summary info ============================
+FAILED tests/perf/test_perf_pass3.py::test_pass3_pipeline_identical[size0-True]
+FAILED tests/perf/test_perf_pass3.py::test_pass3_pipeline_identical[size1-True]
+============= 2 failed, 282 passed, 3 skipped in 80.09s (0:01:20) ==============

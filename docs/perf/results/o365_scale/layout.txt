@@ -1,0 +1,5 @@
+/workspace/YOLOX/datasets/objects365/train
+/workspace/YOLOX/datasets/objects365/train/patch0
+/workspace/YOLOX/datasets/objects365/train/patch0/objects365_v1_00000000.jpg
+/workspace/YOLOX/datasets/objects365/train/patch0/objects365_v1_00000002.jpg
+/workspace/YOLOX/datasets/objects365/train/patch0/objects365_v1_00000003.jpg
