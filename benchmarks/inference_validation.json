@@ -1,0 +1,12 @@
+{
+  "model": "yolox-s",
+  "checkpoint": "/workspace/YOLOX/YOLOX_outputs/yolox_s_run20_match/best_ckpt.pth",
+  "mAP_50_95": 0.29763594819934497,
+  "mAP_50": 0.46715256061565713,
+  "conf_thre": 0.01,
+  "nms_thre": 0.65,
+  "fp16": false,
+  "fuse": true,
+  "batch_size": 64,
+  "elapsed_seconds": 47.56
+}

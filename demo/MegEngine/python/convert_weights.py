@@ -21,7 +21,7 @@ def make_parser():
 
 
 def numpy_weights(weight_file):
-    torch_weights = torch.load(weight_file, map_location="cpu")
+    torch_weights = torch.load(weight_file, map_location="cpu", weights_only=False)
     if "model" in torch_weights:
         torch_weights = torch_weights["model"]
     new_dict = OrderedDict()
