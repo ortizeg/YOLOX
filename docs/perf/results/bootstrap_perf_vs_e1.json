@@ -1,0 +1,121 @@
+{
+  "config": {
+    "resampling_unit": "clip",
+    "method": "exact complete enumeration of all distinct cluster resamples",
+    "n_distinct_resamples": 10,
+    "n_images": 94,
+    "n_clusters": 3,
+    "cluster_sizes": [
+      30,
+      33,
+      31
+    ],
+    "metric": "mAP_50_95",
+    "references": [],
+    "rows": [],
+    "note": "Clip-clustered paired bootstrap, same machinery as bootstrap_clustered_7models.json. Rows are the fine-tuned foundation models in results/finetune/finetune_metrics_merged5.json."
+  },
+  "per_model": {
+    "perf#0": {
+      "point_estimate": 0.6856545209884644,
+      "bootstrap_mean": 0.6869641873571607,
+      "bootstrap_std": 0.018097152324353327,
+      "ci_2.5": 0.6507339134812355,
+      "ci_97.5": 0.723669083416462
+    },
+    "perf#1": {
+      "point_estimate": 0.6948171257972717,
+      "bootstrap_mean": 0.6955349599873578,
+      "bootstrap_std": 0.014823420262594774,
+      "ci_2.5": 0.6654213227331638,
+      "ci_97.5": 0.7274296313524247
+    },
+    "perf#2": {
+      "point_estimate": 0.6864968538284302,
+      "bootstrap_mean": 0.6883589757813349,
+      "bootstrap_std": 0.015042972024781455,
+      "ci_2.5": 0.6583553351461887,
+      "ci_97.5": 0.7195707648992539
+    },
+    "e1#0": {
+      "point_estimate": 0.6851421594619751,
+      "bootstrap_mean": 0.6869486835267808,
+      "bootstrap_std": 0.016233970992321524,
+      "ci_2.5": 0.6552287764847279,
+      "ci_97.5": 0.719691563397646
+    },
+    "e1#1": {
+      "point_estimate": 0.6999331116676331,
+      "bootstrap_mean": 0.7015622456868489,
+      "bootstrap_std": 0.013616932772447453,
+      "ci_2.5": 0.6810715846717358,
+      "ci_97.5": 0.7346740625798702
+    },
+    "e1#2": {
+      "point_estimate": 0.6909621953964233,
+      "bootstrap_mean": 0.6938030896363434,
+      "bootstrap_std": 0.015629610642776473,
+      "ci_2.5": 0.6725744605064392,
+      "ci_97.5": 0.7318264335393906
+    }
+  },
+  "row_minus_reference": {},
+  "per_clip": {
+    "boston-celtics-new-york-knicks-game-1-q1|07_41-07_34": {
+      "perf#0": 0.7247325778007507,
+      "perf#1": 0.7284663915634155,
+      "perf#2": 0.7205272912979126,
+      "e1#0": 0.7205879092216492,
+      "e1#1": 0.7360763549804688,
+      "e1#2": 0.7334204912185669,
+      "perf": 0.724575420220693,
+      "e1": 0.7300282518068949
+    },
+    "boston-celtics-new-york-knicks-game-4-q1|05_06-05_01": {
+      "perf#0": 0.6938356757164001,
+      "perf#1": 0.7004600167274475,
+      "perf#2": 0.6960667967796326,
+      "e1#0": 0.6945406198501587,
+      "e1#1": 0.6963940858840942,
+      "e1#2": 0.6875620484352112,
+      "perf": 0.6967874964078268,
+      "e1": 0.6928322513898214
+    },
+    "boston-celtics-orlando-magic-game-4-q1|11_44-11_36": {
+      "perf#0": 0.6496237516403198,
+      "perf#1": 0.664411187171936,
+      "perf#2": 0.6574431657791138,
+      "e1#0": 0.6543307304382324,
+      "e1#1": 0.6808717250823975,
+      "e1#2": 0.6730238795280457,
+      "perf": 0.6571593681971232,
+      "e1": 0.6694087783495585
+    }
+  },
+  "groups": {
+    "perf": {
+      "point_estimate": 0.688989500204722,
+      "bootstrap_mean": 0.6902860410419511,
+      "bootstrap_std": 0.015980540508145034,
+      "ci_2.5": 0.6581701904535293,
+      "ci_97.5": 0.7235564932227135
+    },
+    "e1": {
+      "point_estimate": 0.6920124888420105,
+      "bootstrap_mean": 0.694104672949991,
+      "bootstrap_std": 0.014882937953140527,
+      "ci_2.5": 0.6697616388400396,
+      "ci_97.5": 0.7287306865056355
+    }
+  },
+  "pairs": {
+    "perf - e1": {
+      "point_diff": -0.0030229886372884485,
+      "mean_diff": -0.0038186319080399764,
+      "ci_2.5": -0.012045282622178393,
+      "ci_97.5": 0.003711063166459406,
+      "ci_excludes_zero": false,
+      "clips_ahead": "1 of 3"
+    }
+  }
+}

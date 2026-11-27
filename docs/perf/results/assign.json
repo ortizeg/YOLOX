@@ -1,0 +1,118 @@
+{
+  "batches": [
+    {
+      "gts": 706,
+      "fg_loop": 2322,
+      "fg_batch": 2322,
+      "fg_agree": 1.0,
+      "identical_targets": true
+    },
+    {
+      "gts": 688,
+      "fg_loop": 2163,
+      "fg_batch": 2163,
+      "fg_agree": 1.0,
+      "identical_targets": true
+    },
+    {
+      "gts": 718,
+      "fg_loop": 2189,
+      "fg_batch": 2189,
+      "fg_agree": 1.0,
+      "identical_targets": true
+    },
+    {
+      "gts": 779,
+      "fg_loop": 2712,
+      "fg_batch": 2712,
+      "fg_agree": 1.0,
+      "identical_targets": true
+    },
+    {
+      "gts": 670,
+      "fg_loop": 2731,
+      "fg_batch": 2731,
+      "fg_agree": 1.0,
+      "identical_targets": true
+    },
+    {
+      "gts": 586,
+      "fg_loop": 2326,
+      "fg_batch": 2326,
+      "fg_agree": 1.0,
+      "identical_targets": true
+    },
+    {
+      "gts": 832,
+      "fg_loop": 3015,
+      "fg_batch": 3015,
+      "fg_agree": 1.0,
+      "identical_targets": true
+    },
+    {
+      "gts": 758,
+      "fg_loop": 2887,
+      "fg_batch": 2887,
+      "fg_agree": 1.0,
+      "identical_targets": true
+    },
+    {
+      "gts": 688,
+      "fg_loop": 2530,
+      "fg_batch": 2530,
+      "fg_agree": 1.0,
+      "identical_targets": true
+    },
+    {
+      "gts": 570,
+      "fg_loop": 2197,
+      "fg_batch": 2197,
+      "fg_agree": 1.0,
+      "identical_targets": true
+    },
+    {
+      "gts": 685,
+      "fg_loop": 2793,
+      "fg_batch": 2793,
+      "fg_agree": 1.0,
+      "identical_targets": true
+    },
+    {
+      "gts": 805,
+      "fg_loop": 2334,
+      "fg_batch": 2334,
+      "fg_agree": 1.0,
+      "identical_targets": true
+    },
+    {
+      "gts": 541,
+      "fg_loop": 2290,
+      "fg_batch": 2290,
+      "fg_agree": 1.0,
+      "identical_targets": true
+    },
+    {
+      "gts": 692,
+      "fg_loop": 2703,
+      "fg_batch": 2703,
+      "fg_agree": 1.0,
+      "identical_targets": true
+    },
+    {
+      "gts": 730,
+      "fg_loop": 2542,
+      "fg_batch": 2542,
+      "fg_agree": 1.0,
+      "identical_targets": true
+    },
+    {
+      "gts": 744,
+      "fg_loop": 2629,
+      "fg_batch": 2629,
+      "fg_agree": 1.0,
+      "identical_targets": true
+    }
+  ],
+  "identical_batches": 16,
+  "mean_fg_agreement": 1.0
+}

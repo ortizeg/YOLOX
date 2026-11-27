@@ -1,0 +1,8 @@
+base_1g wall 127 peak_used_MiB 16907
+perf_1g_w4 wall 67 peak_used_MiB 16032
+base_8g_w4 wall 308 peak_used_MiB 124224
+perf_8g_w4 wall 97 peak_used_MiB 43179
+perf_8g_w8 wall 107 peak_used_MiB 56001
+perf_8g_w12 wall 118 peak_used_MiB 67869
+perf_8g_w8_noannocache wall 207 peak_used_MiB 159339
+perf_8g_w8_bf16 wall 107 peak_used_MiB 54069

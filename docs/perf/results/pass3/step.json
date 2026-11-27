@@ -1,0 +1,75 @@
+{
+  "gpu": "NVIDIA GeForce RTX 4090",
+  "torch": "2.5.1+cu124",
+  "batch": 16,
+  "sizes": [
+    640,
+    864,
+    736,
+    960,
+    832,
+    704,
+    928,
+    800,
+    672,
+    896,
+    768
+  ],
+  "iters": 110,
+  "warmup": 110,
+  "check": false,
+  "sets": {
+    "baseline": {
+      "flags": [],
+      "sec_per_iter_median": 0.2641286805155687,
+      "sec_per_iter_mean": 0.26254298150941563,
+      "img_per_s": 60.57653401655827,
+      "speedup_vs_baseline": 1.0
+    },
+    "nondeterministic,no_empty_cache,simota_batch,cls_cost_algebra,ema_foreach,fused_optim,sppf,focus_conv,channels_last,uint8_transport,skip_noop_resize,hsv_lut,int_mixup,class_map": {
+      "flags": [
+        "channels_last",
+        "class_map",
+        "cls_cost_algebra",
+        "ema_foreach",
+        "focus_conv",
+        "fused_optim",
+        "hsv_lut",
+        "int_mixup",
+        "no_empty_cache",
+        "nondeterministic",
+        "simota_batch",
+        "skip_noop_resize",
+        "sppf",
+        "uint8_transport"
+      ],
+      "sec_per_iter_median": 0.11783915548585355,
+      "sec_per_iter_mean": 0.1204955043633659,
+      "img_per_s": 135.7782982577534,
+      "speedup_vs_baseline": 2.241433922591859
+    },
+    "nondeterministic,no_empty_cache,simota_batch,cls_cost_algebra,ema_foreach,fused_optim,sppf,focus_conv,channels_last,uint8_transport,skip_noop_resize,hsv_lut,int_mixup,class_map,simota_nosync": {
+      "flags": [
+        "channels_last",
+        "class_map",
+        "cls_cost_algebra",
+        "ema_foreach",
+        "focus_conv",
+        "fused_optim",
+        "hsv_lut",
+        "int_mixup",
+        "no_empty_cache",
+        "nondeterministic",
+        "simota_batch",
+        "simota_nosync",
+        "skip_noop_resize",
+        "sppf",
+        "uint8_transport"
+      ],
+      "sec_per_iter_median": 0.11663105900515802,
+      "sec_per_iter_mean": 0.1197026577370707,
+      "img_per_s": 137.18472709136935,
+      "speedup_vs_baseline": 2.2646513095957364
+    }
+  }
+}

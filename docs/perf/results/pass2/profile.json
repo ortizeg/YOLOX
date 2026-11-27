@@ -1,0 +1,35 @@
+{
+  "gpu": "NVIDIA GeForce RTX 4090",
+  "sizes": [
+    640,
+    864,
+    736,
+    960,
+    832,
+    704,
+    928,
+    800,
+    672,
+    896,
+    768
+  ],
+  "stages": {
+    "original": {
+      "backbone+neck fwd": 33.46,
+      "head fwd + SimOTA + loss": 113.36,
+      "backward": 90.11,
+      "optimizer": 4.61,
+      "EMA": 19.84,
+      "total": 261.39
+    },
+    "speed-ups": {
+      "backbone+neck fwd": 29.48,
+      "head fwd + SimOTA + loss": 19.01,
+      "backward": 69.66,
+      "optimizer": 2.5,
+      "EMA": 1.08,
+      "total": 121.74
+    }
+  },
+  "top_ops": "-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  \n                                                   Name    Self CPU %      Self CPU   CPU total %     CPU total  CPU time avg     Self CUDA   Self CUDA %    CUDA total  CUDA time avg    # of Calls  \n-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  \nautograd::engine::evaluate_function: ConvolutionBack...         1.46%      31.610ms        12.31%     266.354ms     124.464us       0.000us         0.00%     685.316ms     320.241us          2140  \n                                   ConvolutionBackward0         0.38%       8.204ms        10.39%     224.874ms     105.081us       0.000us         0.00%     641.404ms     299.722us          2140  \n                             aten::convolution_backward         5.64%     122.049ms        10.01%     216.669ms     101.247us     639.006ms        33.20%     641.404ms     299.722us          2140  \n                                           aten::conv2d         0.61%      13.223ms        14.79%     320.037ms      74.775us       0.000us         0.00%     596.972ms     139.480us          4280  \n                                      aten::convolution         0.64%      13.856ms         5.47%     118.432ms      55.342us       0.000us         0.00%     283.122ms     132.300us          2140  \n                                     aten::_convolution         0.53%      11.381ms         4.83%     104.575ms      48.867us       0.000us         0.00%     283.122ms     132.300us          2140  \n                                aten::cudnn_convolution         3.02%      65.453ms         4.16%      90.068ms      42.088us     282.686ms        14.69%     282.724ms     132.114us          2140  \nautograd::engine::evaluate_function: CudnnBatchNormB...         1.35%      29.132ms         7.62%     164.798ms      84.080us       0.000us         0.00%     188.990ms      96.423us          1960  \n                                CudnnBatchNormBackward0         0.43%       9.381ms         6.27%     135.666ms      69.217us       0.000us         0.00%     188.990ms      96.423us          1960  \n                        aten::cudnn_batch_norm_backward         2.13%      46.019ms         5.84%     126.284ms      64.431us     188.990ms         9.82%     188.990ms      96.423us          1960  \n                                            aten::copy_         3.13%      67.726ms        20.37%     440.847ms      43.878us     160.236ms         8.33%     160.307ms      15.956us         10047  \nvoid cudnn::batchnorm_bwtr_nhwc_semiPersist<__half, ...         0.00%       0.000us         0.00%       0.000us       0.000us     141.700ms         7.36%     141.700ms     191.486us           740  \nsm80_xmma_wgrad_implicit_gemm_indexed_f16f16_f16f32_...         0.00%       0.000us         0.00%       0.000us       0.000us     141.512ms         7.35%     141.512ms     321.618us           440  \nsm86_xmma_fprop_implicit_gemm_f16f16_f16f32_f32_nhwc...         0.00%       0.000us         0.00%       0.000us       0.000us     135.767ms         7.05%     135.767ms     163.575us           830  \n     autograd::engine::evaluate_function: SiluBackward0         0.81%      17.450ms         3.02%      65.395ms      33.365us       0.000us         0.00%     127.312ms      64.955us          1960  \n                                          SiluBackward0         0.22%       4.854ms         2.22%      47.945ms      24.462us       0.000us         0.00%     127.312ms      64.955us          1960  \n                                    aten::silu_backward         1.28%      27.711ms         1.99%      43.091ms      21.985us     127.312ms         6.61%     127.312ms      64.955us          1960  \n                                            aten::silu_         1.10%      23.864ms         4.40%      95.276ms      48.610us      60.921ms         3.17%     126.399ms      64.489us          1960  \n                                       aten::batch_norm         0.13%       2.872ms         8.29%     179.396ms      91.529us       0.000us         0.00%     109.885ms      56.064us          1960  \n                           aten::_batch_norm_impl_index         0.28%       6.109ms         8.16%     176.524ms      90.063us       0.000us         0.00%     109.885ms      56.064us          1960  \n                                 aten::cudnn_batch_norm         3.10%      67.177ms         7.88%     170.415ms      86.947us     109.885ms         5.71%     109.885ms      56.064us          1960  \nvoid at::native::vectorized_elementwise_kernel<4, at...         0.00%       0.000us         0.00%       0.000us       0.000us     106.420ms         5.53%     106.420ms      66.512us          1600  \nvoid cudnn::batchnorm_fwtr_nhwc_semiPersist<__half, ...         0.00%       0.000us         0.00%       0.000us       0.000us      84.608ms         4.40%      84.608ms     114.335us           740  \n                                            aten::clone         0.58%      12.452ms         3.71%      80.234ms      30.163us       0.000us         0.00%      80.631ms      30.312us          2660  \nvoid cutlass__5x_cudnn::Kernel<cutlass_tensorop_f16_...         0.00%       0.000us         0.00%       0.000us       0.000us      78.234ms         4.06%      78.234ms     205.879us           380  \n-------------------------------------------------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  ------------  \nSelf CPU time total: 2.164s\nSelf CUDA time total: 1.925s\n"
+}

@@ -1,0 +1,3 @@
+full json load s 112 maxrss GB 20.2
+full images 1742292 annotations 25407633
+subset images 69519 annotations 1356085 boxes/img 19.5

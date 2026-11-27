@@ -1,0 +1,2 @@
+{"start_epoch": 175, "best_ap": 0.6801921332558352}
+NVIDIA GeForce RTX 4090
