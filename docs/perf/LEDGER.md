@@ -378,6 +378,61 @@ times are `bench_step.py` medians over 220 iterations after 110 warm-up, E1 bask
   (`WorkNCCL(SeqNum=3010, OpType=ALLREDUCE, NumelIn=1 ...)`). This looks like the H200 epoch-4 hang. It reproduces in about
   2 min on 2 GPUs, so it can be bisected over V's flags cheaply. Until then, keep in-training eval off for multi-GPU runs.
 
+## Step audit on 8× L40S and the next speed fix (2026-11-27; `tools/perf/box_step_audit.sh`)
+
+Box: 8× L40S 46 GB, 192 vCPUs, torch 2.5.1. Main at `4c403d3` (#18–#20), Objects365-M recipe at 16 images/GPU,
+weights from the finished Objects365 run, `perf` = the live run's set + the five pass-5 flags. Raw results:
+`foundation-finetune/results/yolox/step_audit_l40s/` (the scripted audit, and `fixed640/` for the rerun).
+
+**(a) Memory under a 24 GiB cap (the RTX 4090 question).** No OOM on any rank. Peak reserved per rank: 10.3–10.8 GiB
+with the recipe's multiscale sizes (80 iterations), 11.4–13.2 GiB pinned at 800 px (40 iterations). So the
+Objects365 recipe fits a 24 GB RTX 4090 with about 11 GB of headroom. Per the hardware decision above, **8× RTX 4090 is
+the default for the next Objects365 run** (L40S stays the fallback). The 22.2 / 24.6 GB seen in the 4090 benchmark is
+the nvidia-smi figure (process total, incl. CUDA context and allocator cache), not the allocator peak measured here;
+the two runs were not set up to be compared directly, so check nvidia-smi in the first minutes of the next 4090 run.
+
+**(b) Host syncs per training step (rank 0, 20 audited iterations after 30 warm-up): 3.5.**
+
+| per step | where | note |
+|---:|---|---|
+| 2.0 | inside `scaler.scale(loss).backward()` | raised in the C++ autograd engine, so the Python stack stops there; needs `CUDA_LAUNCH_BLOCKING` or a backward hook bisect to name the op |
+| 1.0 | `yolo_head.py:629` `fg_flat.nonzero()` in `get_targets_batched` | number of positives is data-dependent |
+| 0.4 | `trainer.py:371/397` loss formatting | only on logging steps |
+
+**(c) Profile.** The scripted profile (window = iterations 35–45, multiscale on) measured 678 ms/step against 126 ms in
+the real run: the window caught size switches, each of which re-runs cuDNN autotuning. It is not usable for timing.
+Rerun pinned at 640 px (`multiscale_range 0`, wait 30 + warm-up 5 + 10 active):
+
+- Unprofiled steady step at 640: **114 ms** (iterations 100–150). Profiled: 174 ms.
+- GPU busy under the profiler 49.9% of 174 ms ≈ **87 ms of GPU work per step**, NCCL ≈ 7 ms of it. So in the real 114 ms
+  step the GPUs idle about **27 ms (~24%)**.
+- 2,036 kernels per step. Host-sync wait 6.9 ms/step (3.8 `cudaStreamSynchronize` calls).
+
+| stage (profiled, rank 0) | CPU ms | CUDA ms |
+|---|---:|---:|
+| forward (total) | 68.2 | 34.5 |
+| ↳ backbone + neck | 42.3 | 18.5 |
+| ↳ head convs | 10.5 | 4.6 |
+| ↳ head targets (SimOTA) | 12.7 | 11.2 |
+| backward | 83.9 | 58.4 |
+| EMA | 11.8 | 1.1 |
+| optimizer step | 5.5 | 1.8 |
+
+Forward and backward take about twice as long to launch on the CPU as to run on the GPU: the 8-GPU step is
+launch-bound, which the 1× 4090 `bench_step` numbers (GPU-bound, 4% from compile) could not show. SimOTA is GPU-bound
+and is ~13% of GPU work.
+
+**Decision: N6 (zero host syncs per step) next, then N7 (CUDA graphs over backbone + neck + head convs) — not N8 yet.**
+
+- N8 (exact sparse SimOTA) can only shrink the 11 ms SimOTA slice. Even halving it is ~5 ms, about 4% of the step.
+- The ~27 ms idle per step is launch latency plus the GPU queue draining at each of the 3.5 syncs. N6 removes the drain
+  points (backward ×2, the `nonzero`, and moves loss formatting off the step). N7 then replays the static-shape part
+  of the step (one graph per multiscale size, 11 sizes; memory headroom is now known to be ample) to cut the launch
+  cost. Together they target most of the idle 24%; N6 alone is expected to be a few percent.
+- N6 lands first because N7 needs a sync-free captured region and because its gain is measurable on its own.
+- Measure both on a 2× RTX 4090 box (the DDP case, ~$1/h), not on 1 GPU, where the step is GPU-bound.
+- N8 stays on the list; revisit after N7 if SimOTA becomes the largest remaining slice.
+
 ## N6: no host sync in a training step (2026-11-27; 2× RTX 4090; `tools/perf/box_n6.sh`)
 
 Box: 2× RTX 4090, 32 vCPUs, torch 2.5.1+cu124. V = the 8× L40S audit set without the tier-C `decode_reuse`. E1
