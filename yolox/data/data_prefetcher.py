@@ -4,6 +4,8 @@
 
 import torch
 
+from yolox.utils import perf
+
 
 class DataPrefetcher:
     """
@@ -26,8 +28,12 @@ class DataPrefetcher:
         except StopIteration:
             self.next_input = None
             self.next_target = None
+            if perf.on("host_label_counts"):
+                self.next_label_counts = None
             return
 
+        if perf.on("host_label_counts"):  # from the CPU batch, before the copy: no device read-back later
+            self.next_label_counts = perf.label_counts(self.next_target)
         with torch.cuda.stream(self.stream):
             self.input_cuda()
             self.next_target = self.next_target.cuda(non_blocking=True)
@@ -36,6 +42,8 @@ class DataPrefetcher:
         torch.cuda.current_stream().wait_stream(self.stream)
         input = self.next_input
         target = self.next_target
+        if perf.on("host_label_counts"):
+            self.label_counts = self.next_label_counts  # counts of the batch returned now
         if input is not None:
             self.record_stream(input)
         if target is not None:
