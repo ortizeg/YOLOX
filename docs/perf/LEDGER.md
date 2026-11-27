@@ -315,7 +315,7 @@ Source: `src/super_gradients/training/losses/yolox_loss.py` (Apache-2.0).
 - **Worth keeping in mind:**
   - The sparse candidate layout uses less memory than our padded `[B × G_max × A]` tensors at 300 labels per
     mosaic. Write our own sparse version of the exact algorithm if memory limits batch 64.
-  - `obj_loss_fix` (objectness normalised by the number of anchors) is a loss change. Under the decision below it
+  - `obj_loss_fix` (objectness normalised by the number of anchors) is a loss change. Under the Objects365 decision above, it
     is screened by a COCO fine-tune from the Objects365 checkpoint.
 - **Revisit if:** a profile of the multi-GPU step shows loss/assignment above about 25%. Then run a 30-min A/B of
   their matcher vs ours on real Objects365 batches (~$1 on a 4090) before any accuracy run.
