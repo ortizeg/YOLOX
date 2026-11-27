@@ -63,6 +63,26 @@ def to_nchw(inps, dtype):
     return inps.to(dtype)
 
 
+class _Latest:
+    """A logged value already on the host, with the ``.latest`` attribute the logging code reads."""
+    __slots__ = ("latest",)
+
+    def __init__(self, v):
+        self.latest = v
+
+
+def latest_on_host(meters):
+    """``log_onesync``: {name: meter} -> {name: _Latest(float)} with one stack + .tolist() for the tensor values."""
+    keys = list(meters)
+    vals = [meters[k].latest for k in keys]
+    tk = [i for i, v in enumerate(vals) if torch.is_tensor(v)]
+    if tk:
+        host = torch.stack([vals[i].detach().reshape(()).float() for i in tk]).tolist()  # the one sync
+        for i, h in zip(tk, host):
+            vals[i] = h
+    return {k: _Latest(v) for k, v in zip(keys, vals)}
+
+
 class Trainer:
     def __init__(self, exp: Exp, args):
         # init function only defines some basic attr, other attrs like model, optimizer are built in
@@ -367,6 +387,10 @@ class Trainer:
                 self.epoch + 1, self.max_epoch, self.iter + 1, self.max_iter
             )
             loss_meter = self.meter.get_filtered_meter("loss")
+            if perf.on("log_onesync"):
+                # one device-to-host copy for every loss meter (each tensor .latest would be its own sync, here and
+                # again in the tensorboard/wandb/mlflow calls below); the meters then hold the host floats
+                loss_meter = latest_on_host(loss_meter)
             loss_str = ", ".join(
                 ["{}: {:.1f}".format(k, v.latest) for k, v in loss_meter.items()]
             )

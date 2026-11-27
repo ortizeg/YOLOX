@@ -52,6 +52,10 @@ TIER = {
     "fused_optim_amp": "B",  # N3+N4: rebuild SGD/Adam/AdamW with fused=True in the constructor (sync-free GradScaler step)
     "head_nosync": "A",  # N2: head grids/stride rows built and cached on the device (per level and size), no H2D copies
     "worker_cv2_threads": "A",  # N1: cv2.setNumThreads(0) + no OpenCL in spawned DDP ranks and every dataloader worker
+    # N6: no host sync in a training step (logging steps aside)
+    "iou_nosync": "B",  # IOUloss areas as w*h, not torch.prod (whose backward checks for zeros on the host)
+    "dense_loss": "B",  # SimOTA targets for every anchor + positive mask: masked dense losses, no nonzero() (needs simota_batch)
+    "log_onesync": "A",  # the logging step reads every loss meter in one device-to-host copy, not one .item() each
 }
 
 _FLAGS: set[str] = set()

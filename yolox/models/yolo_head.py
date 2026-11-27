@@ -350,6 +350,11 @@ class YOLOXHead(nn.Module):
                     labels, nlabel, outputs, bbox_preds, obj_preds, cls_preds, expanded_strides, x_shifts, y_shifts,
                     total_num_anchors, dtype, counts=counts)
 
+        if torch.is_tensor(num_fg):  # dense_loss: masked dense losses over every anchor, no host sync
+            with stage("head_loss"):
+                return self.get_losses_dense(bbox_preds, obj_preds, cls_preds, origin_preds, cls_targets,
+                                             reg_targets, obj_targets, fg_masks, l1_targets, num_fg, num_gts)
+
         with stage("head_loss"):
             num_fg = max(num_fg, 1)
             # simota_nosync returns positive indices (int64) instead of a boolean mask; x[idx] == x[mask] row for row
@@ -382,6 +387,31 @@ class YOLOXHead(nn.Module):
             loss_l1,
             num_fg / max(num_gts, 1),
         )
+
+    def get_losses_dense(self, bbox_preds, obj_preds, cls_preds, origin_preds, cls_targets, reg_targets,
+                         obj_targets, fg, l1_targets, num_fg, num_gts):
+        """``dense_loss``: the same four losses as ``get_losses``, summed over every anchor with the positive mask
+        instead of over the gathered positives. Positive rows see exactly the inputs they see there; other rows
+        contribute exactly 0 to the loss and to every gradient (their IoU inputs are replaced by a unit box, not
+        multiplied by 0, so a non-finite prediction on a background anchor cannot turn the sum into NaN). Only the
+        summation order differs (tier B)."""
+        fgf = fg.to(cls_targets.dtype)
+        fg4 = fg[:, None]
+        nfg = num_fg.clamp(min=1).to(torch.float32)
+        unit = reg_targets.new_ones(())
+        pred = torch.where(fg4, bbox_preds.view(-1, 4), unit.to(bbox_preds.dtype))
+        tgt = torch.where(fg4, reg_targets, unit)
+        loss_iou = (self.iou_loss(pred, tgt) * fgf).sum() / nfg
+        loss_obj = (self.bcewithlog_loss(obj_preds.view(-1, 1), obj_targets)).sum() / nfg
+        loss_cls = (self.bcewithlog_loss(cls_preds.view(-1, self.num_classes), cls_targets) * fgf[:, None]).sum() / nfg
+        if self.use_l1:
+            opred = origin_preds.view(-1, 4)
+            loss_l1 = (self.l1_loss(opred, torch.where(fg4, l1_targets, opred.detach())) * fgf[:, None]).sum() / nfg
+        else:
+            loss_l1 = 0.0
+        reg_weight = 5.0
+        loss = reg_weight * loss_iou + loss_obj + loss_cls + loss_l1
+        return (loss, reg_weight * loss_iou, loss_obj, loss_cls, loss_l1, nfg / max(num_gts, 1))
 
     def take_host_label_counts(self, batch_size):
         """``host_label_counts``: the per-image label counts the trainer computed from the CPU targets
@@ -530,6 +560,8 @@ class YOLOXHead(nn.Module):
         if G == 0:
             z = bbox_preds.new_zeros
             fg = torch.zeros(B * A, dtype=torch.bool, device=dev)
+            if perf.on("dense_loss"):  # every anchor present, none positive
+                return (z((B * A, C)), z((B * A, 4)), z((B * A, 1)).to(dtype), fg, z((B * A, 4)), fg.sum(), num_gts)
             return (z((0, C)), z((0, 4)), z((B * A, 1)).to(dtype), fg, z((0, 4)), 0.0, num_gts)
 
         gt = labels[:, :G]  # [B, G, 5] = cls, cx, cy, w, h (valid rows first)
@@ -623,6 +655,29 @@ class YOLOXHead(nn.Module):
         fg_flat = fg.reshape(-1)
         matched_gt_inds = matching.argmax(dim=1)  # [B, A]
         pred_ious = (matching * ious).sum(1)  # [B, A]
+        if perf.on("dense_loss"):
+            # targets for every anchor (image-major, the order of fg_flat), gathered with the matched gt index; rows
+            # of non-positive anchors hold arbitrary finite values and are masked out in get_losses. No nonzero(),
+            # so no host sync and no data-dependent shape; num_fg stays a device tensor.
+            bidx = torch.arange(B, device=dev)[:, None].expand(B, A)
+            gt_matched_classes = gt_classes[bidx, matched_gt_inds]  # [B, A]
+            cls_targets = F.one_hot(gt_matched_classes.to(torch.int64).clamp(0, C - 1), C) * \
+                (pred_ious * fg).unsqueeze(-1)
+            cls_targets = cls_targets.reshape(B * A, C)
+            reg_targets = gt_boxes[bidx, matched_gt_inds].reshape(B * A, 4)
+            obj_targets = fg_flat.unsqueeze(-1).to(dtype)
+            l1_targets = None
+            if self.use_l1:
+                # padded gts (zero boxes) only ever land on non-positive rows; clamp keeps their log finite
+                safe = torch.where(fg_flat[:, None], reg_targets, reg_targets.new_ones(()))
+                l1_targets = self.get_l1_target(
+                    bbox_preds.new_zeros((B * A, 4)),
+                    safe,
+                    strides.repeat(B),
+                    x_shifts=x_shifts[0].repeat(B),
+                    y_shifts=y_shifts[0].repeat(B),
+                )
+            return cls_targets, reg_targets, obj_targets, fg_flat, l1_targets, fg_flat.sum(), num_gts
         if perf.on("simota_nosync"):
             # one nonzero (the only sync after the counts) gives every positive's flat index, in the same
             # image-major anchor order as boolean-mask indexing; everything below gathers with it

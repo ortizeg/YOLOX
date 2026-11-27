@@ -6,6 +6,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from yolox.utils import perf
+
 
 class IOUloss(nn.Module):
     def __init__(self, reduction="none", loss_type="iou"):
@@ -25,11 +27,20 @@ class IOUloss(nn.Module):
             (pred[:, :2] + pred[:, 2:] / 2), (target[:, :2] + target[:, 2:] / 2)
         )
 
-        area_p = torch.prod(pred[:, 2:], 1)
-        area_g = torch.prod(target[:, 2:], 1)
+        if perf.on("iou_nosync"):
+            # w * h: the same product as prod over two columns, but its backward is grad * other factor, where
+            # prod's backward checks the input for zeros on the host (two syncs per step: area_p, area_i)
+            wh_i = br - tl
+            area_p = pred[:, 2] * pred[:, 3]
+            area_g = target[:, 2] * target[:, 3]
+            en = (tl < br).type(tl.type()).prod(dim=1)
+            area_i = wh_i[:, 0] * wh_i[:, 1] * en
+        else:
+            area_p = torch.prod(pred[:, 2:], 1)
+            area_g = torch.prod(target[:, 2:], 1)
 
-        en = (tl < br).type(tl.type()).prod(dim=1)
-        area_i = torch.prod(br - tl, 1) * en
+            en = (tl < br).type(tl.type()).prod(dim=1)
+            area_i = torch.prod(br - tl, 1) * en
         area_u = area_p + area_g - area_i
         iou = (area_i) / (area_u + 1e-16)
 
@@ -42,7 +53,11 @@ class IOUloss(nn.Module):
             c_br = torch.max(
                 (pred[:, :2] + pred[:, 2:] / 2), (target[:, :2] + target[:, 2:] / 2)
             )
-            area_c = torch.prod(c_br - c_tl, 1)
+            if perf.on("iou_nosync"):
+                wh_c = c_br - c_tl
+                area_c = wh_c[:, 0] * wh_c[:, 1]
+            else:
+                area_c = torch.prod(c_br - c_tl, 1)
             giou = iou - (area_c - area_u) / area_c.clamp(1e-16)
             loss = 1 - giou.clamp(min=-1.0, max=1.0)
 
