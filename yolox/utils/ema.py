@@ -7,6 +7,8 @@ from copy import deepcopy
 import torch
 import torch.nn as nn
 
+from yolox.utils import perf
+
 __all__ = ["ModelEMA", "is_parallel"]
 
 
@@ -30,7 +32,7 @@ class ModelEMA:
     GPU assignment and distributed training wrappers.
     """
 
-    def __init__(self, model, decay=0.9999, updates=0):
+    def __init__(self, model, decay=0.9999, updates=0, tau=2000):
         """
         Args:
             model (nn.Module): model to apply EMA.
@@ -41,7 +43,7 @@ class ModelEMA:
         self.ema = deepcopy(model.module if is_parallel(model) else model).eval()
         self.updates = updates
         # decay exponential ramp (to help early epochs)
-        self.decay = lambda x: decay * (1 - math.exp(-x / 2000))
+        self.decay = lambda x: decay * (1 - math.exp(-x / tau))
         for p in self.ema.parameters():
             p.requires_grad_(False)
 
@@ -51,6 +53,19 @@ class ModelEMA:
             self.updates += 1
             d = self.decay(self.updates)
 
+            if perf.on("ema_foreach"):
+                # the same two element-wise ops (v *= d; v += (1 - d) * m), batched into a few kernel launches.
+                # state_dict tensors share storage with the live parameters/buffers, so the lists are built once.
+                if getattr(self, "_ema_src", None) != id(model):
+                    msd = model.module.state_dict() if is_parallel(model) else model.state_dict()
+                    esd = self.ema.state_dict()
+                    keys = [k for k, v in esd.items() if v.dtype.is_floating_point]
+                    self._ema_t = [esd[k] for k in keys]
+                    self._model_t = [msd[k].detach() for k in keys]
+                    self._ema_src = id(model)
+                torch._foreach_mul_(self._ema_t, d)
+                torch._foreach_add_(self._ema_t, torch._foreach_mul(self._model_t, 1.0 - d))
+                return
             msd = (
                 model.module.state_dict() if is_parallel(model) else model.state_dict()
             )  # model state_dict

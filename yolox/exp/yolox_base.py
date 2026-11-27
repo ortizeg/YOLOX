@@ -8,6 +8,8 @@ import torch
 import torch.distributed as dist
 import torch.nn as nn
 
+from yolox.utils import perf
+
 from .base_exp import BaseExp
 
 __all__ = ["Exp", "check_exp_value"]
@@ -31,6 +33,8 @@ class Exp(BaseExp):
         # set worker to 4 for shorter dataloader init time
         # If your training process cost many memory, reduce this value.
         self.data_num_workers = 4
+        # opt-in training speed-ups (yolox/utils/perf.py): "" = original code paths, "all", or a comma list
+        self.perf = ""
         self.input_size = (640, 640)  # (height, width)
         # Actual multiscale ranges: [640 - 5 * 32, 640 + 5 * 32].
         # To disable multiscale training, set the value to 0.
@@ -82,6 +86,9 @@ class Exp(BaseExp):
         self.no_aug_epochs = 15
         # apply EMA during training
         self.ema = True
+        # EMA decay target and warm-up time constant (updates); YOLOX defaults
+        self.ema_decay = 0.9998
+        self.ema_tau = 2000
 
         # weight decay of optimizer
         self.weight_decay = 5e-4
@@ -185,7 +192,7 @@ class Exp(BaseExp):
             mosaic=not no_aug,
             img_size=self.input_size,
             preproc=TrainTransform(
-                max_labels=120,
+                max_labels=getattr(self, "max_labels", 120),
                 flip_prob=self.flip_prob,
                 hsv_prob=self.hsv_prob),
             degrees=self.degrees,
@@ -221,7 +228,27 @@ class Exp(BaseExp):
 
         return train_loader
 
+    def _draw_size(self):
+        size_factor = self.input_size[1] * 1.0 / self.input_size[0]
+        if not hasattr(self, 'random_size'):
+            min_size = int(self.input_size[0] / 32) - self.multiscale_range
+            max_size = int(self.input_size[0] / 32) + self.multiscale_range
+            self.random_size = (min_size, max_size)
+        size = random.randint(*self.random_size)
+        return (int(32 * size), 32 * int(size * size_factor))
+
     def random_resize(self, data_loader, epoch, rank, is_distributed):
+        if perf.on("resize_nosync"):
+            # same draw on rank 0, but no CUDA tensor: single GPU needs no communication at all, and DDP broadcasts
+            # a CPU tensor over a gloo group (a host-side rendezvous) instead of an NCCL barrier + broadcast + two
+            # .item() calls, each of which waits for the GPU queue to drain
+            size = self._draw_size() if rank == 0 else (0, 0)
+            if is_distributed:
+                from yolox.utils.dist import _get_global_gloo_group  # cached gloo group (WORLD if already gloo)
+                t = torch.tensor(size, dtype=torch.int64)
+                dist.broadcast(t, 0, group=_get_global_gloo_group())
+                size = (int(t[0]), int(t[1]))
+            return size
         tensor = torch.LongTensor(2).cuda()
 
         if rank == 0:
@@ -320,11 +347,14 @@ class Exp(BaseExp):
         else:
             sampler = torch.utils.data.SequentialSampler(valdataset)
 
+        eval_workers = getattr(self, "eval_num_workers", self.data_num_workers)  # default: same as training
         dataloader_kwargs = {
-            "num_workers": self.data_num_workers,
+            "num_workers": eval_workers,
             "pin_memory": True,
             "sampler": sampler,
         }
+        if perf.on("eval_persistent") and eval_workers > 0:
+            dataloader_kwargs["persistent_workers"] = True  # no worker respawn at every evaluation
         dataloader_kwargs["batch_size"] = batch_size
         val_loader = torch.utils.data.DataLoader(valdataset, **dataloader_kwargs)
 
