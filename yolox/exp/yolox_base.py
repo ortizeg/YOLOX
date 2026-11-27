@@ -203,6 +203,8 @@ class Exp(BaseExp):
             enable_mixup=self.enable_mixup,
             mosaic_prob=self.mosaic_prob,
             mixup_prob=self.mixup_prob,
+            reuse_pool=getattr(self, "decode_reuse_pool", 64),
+            reuse_prob=getattr(self, "decode_reuse_prob", 1.0),
         )
 
         if is_distributed:
