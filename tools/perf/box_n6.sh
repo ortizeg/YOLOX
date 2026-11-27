@@ -18,15 +18,23 @@ E1=(input_size 800,800 test_size 640,640 multiscale_range 5 basic_lr_per_img 2.5
   python3 -c "import torch,cv2;print(torch.__version__,torch.version.cuda,cv2.__version__)"; echo "V=$V"; } > $O/env.txt 2>&1
 
 # 1
-python3 -m pytest tests/perf -q -p no:cacheprovider -rs > $O/pytest_perf.txt 2>&1
+[ -n "${SKIP_CHECKS:-}" ] || python3 -m pytest tests/perf -q -p no:cacheprovider -rs > $O/pytest_perf.txt 2>&1
 
 # 2
-python3 tools/perf/bench_step.py -f $EXP -c /workspace/yolox_m.pth --check --warmup 0 --iters 60 --ref "$V" --out $O/check.json \
+[ -n "${SKIP_CHECKS:-}" ] || python3 tools/perf/bench_step.py -f $EXP -c /workspace/yolox_m.pth --check --warmup 0 --iters 60 --ref "$V" --out $O/check.json \
   --sets "$V,iou_nosync" "$V,dense_loss" "$V,log_onesync" "$N6" -- "${E1[@]}" > $O/check.log 2>&1
+
+# 2b. drift scale: how far an already-accepted tier-B flag (simota_nosync, fused_optim_amp) moves the same 60 steps,
+# and the N6 set over the first 5 steps only (before AdamW amplifies rounding differences)
+VB=$(echo "$V" | sed 's/,simota_nosync//; s/,fused_optim_amp//')
+python3 tools/perf/bench_step.py -f $EXP -c /workspace/yolox_m.pth --check --warmup 0 --iters 60 --ref "$V" --out $O/check_drift.json \
+  --sets "$VB" "$(echo "$V" | sed 's/,simota_nosync//')" -- "${E1[@]}" > $O/check_drift.log 2>&1
+python3 tools/perf/bench_step.py -f $EXP -c /workspace/yolox_m.pth --check --warmup 0 --iters 5 --ref "$V" --out $O/check_5.json \
+  --sets "$V,iou_nosync" "$V,dense_loss" "$N6" -- "${E1[@]}" > $O/check_5.log 2>&1
 
 train() {  # name perf iters "<extra>" ENV=VAL...
   local name=$1 p=$2 iters=$3 extra=$4; shift 4
-  env YOLOX_AUDIT_ITERS=$iters YOLOX_AUDIT_OUT=$O/mem_$name "$@" timeout -k 60 1800 python3 -m yolox.tools.train -f $EXP \
+  env YOLOX_AUDIT_ITERS=$iters YOLOX_AUDIT_SPAN_EPOCHS=1 YOLOX_AUDIT_OUT=$O/mem_$name "$@" timeout -k 60 1800 python3 -m yolox.tools.train -f $EXP \
     -expn n6_$name -d $NG -b $(( 16 * NG )) --fp16 -c /workspace/yolox_m.pth --logger tensorboard seed 0 "${E1[@]}" \
     max_epoch 200 no_aug_epochs 0 warmup_epochs 1 eval_interval 1000 data_num_workers 8 print_interval 10 $extra \
     perf "$p" > $O/$name.log 2>&1

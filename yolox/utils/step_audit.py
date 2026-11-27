@@ -4,6 +4,8 @@ Everything here is off unless one of these environment variables is set (``from_
 trainer runs its original code path; ``stage`` returns a shared no-op context):
 
 - ``YOLOX_AUDIT_ITERS=N``     stop after N iterations of the first epoch (no checkpoint writes, no evaluation).
+- ``YOLOX_AUDIT_SPAN_EPOCHS=1`` with ``YOLOX_AUDIT_ITERS``: keep counting across epoch boundaries (small datasets,
+  e.g. 15 iterations per epoch), still skipping every end-of-epoch checkpoint and evaluation.
 - ``YOLOX_SYNC_AUDIT=<path>``  rank 0: after ``YOLOX_SYNC_AUDIT_WARMUP`` (30) iterations, turn on
   ``torch.cuda.set_sync_debug_mode("warn")`` for ``YOLOX_SYNC_AUDIT_STEPS`` (20) iterations and write every host
   sync, deduplicated by call site, with a trimmed stack, to a JSON file.
@@ -320,6 +322,7 @@ class StepAudit:
         global _MODE
         self.rank = rank
         self.iters = _env_int("YOLOX_AUDIT_ITERS", 0)
+        self.span_epochs = _env_int("YOLOX_AUDIT_SPAN_EPOCHS", 0) > 0
         self.sync_path = os.environ.get("YOLOX_SYNC_AUDIT", "").strip() or None
         self.prof_dir = os.environ.get("YOLOX_PROFILE", "").strip() or None
         cap = os.environ.get("YOLOX_MEM_CAP_GB", "").strip()
@@ -372,7 +375,9 @@ class StepAudit:
             self._stop_sync(complete=True)
         if self.prof is not None:
             self.prof.step()
-        return bool(self.iters) and (self.count >= self.iters or last_iter_of_epoch)
+        if not self.iters:
+            return False
+        return self.count >= self.iters or (last_iter_of_epoch and not self.span_epochs)
 
     # -- profiler
     def _start_profiler(self):

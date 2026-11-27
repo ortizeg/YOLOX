@@ -17,7 +17,7 @@ from yolox.models import YOLOPAFPN, YOLOX, YOLOXHead
 from yolox.utils import MeterBuffer, step_audit
 
 ENV = ("YOLOX_AUDIT_ITERS", "YOLOX_SYNC_AUDIT", "YOLOX_PROFILE", "YOLOX_MEM_CAP_GB", "YOLOX_AUDIT_OUT",
-       "YOLOX_SYNC_AUDIT_WARMUP", "YOLOX_SYNC_AUDIT_STEPS")
+       "YOLOX_SYNC_AUDIT_WARMUP", "YOLOX_SYNC_AUDIT_STEPS", "YOLOX_AUDIT_SPAN_EPOCHS")
 
 
 @pytest.fixture(autouse=True)
@@ -148,6 +148,16 @@ def test_audit_iters_longer_than_epoch_stops_at_epoch_end(tmp_path, monkeypatch)
     t = make_trainer(tmp_path, max_iter=4, max_epoch=3)
     t.train_in_epoch()
     assert (t.calls.iters, t.calls.epochs_ended) == (4, 0)
+
+
+def test_audit_span_epochs_counts_across_epochs(tmp_path, monkeypatch):
+    monkeypatch.setenv("YOLOX_AUDIT_ITERS", "10")
+    monkeypatch.setenv("YOLOX_AUDIT_SPAN_EPOCHS", "1")
+    monkeypatch.setenv("YOLOX_AUDIT_OUT", str(tmp_path / "audit"))
+    t = make_trainer(tmp_path, max_iter=4, max_epoch=5)
+    t.train_in_epoch()
+    # 4 + 4 + 2 iterations over three epochs, and never an end-of-epoch checkpoint or evaluation
+    assert (t.calls.iters, t.audit.count, t.calls.before_epoch, t.calls.epochs_ended) == (10, 10, 3, 0)
 
 
 def test_oom_recorded(tmp_path, monkeypatch):

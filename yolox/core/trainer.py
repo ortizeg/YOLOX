@@ -147,6 +147,8 @@ class Trainer:
             if self._audit_stop:  # YOLOX_AUDIT_ITERS: no checkpoint, no evaluation
                 logger.info(f"step audit: stopping after {self.audit.count} iterations")
                 break
+            if self.audit is not None and self.audit.iters and self.audit.span_epochs:
+                continue  # YOLOX_AUDIT_SPAN_EPOCHS: next epoch without the checkpoint/evaluation of after_epoch
             self.after_epoch()
 
     def train_in_iter(self):
