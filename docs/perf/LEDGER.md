@@ -432,3 +432,42 @@ and is ~13% of GPU work.
 - N6 lands first because N7 needs a sync-free captured region and because its gain is measurable on its own.
 - Measure both on a 2× RTX 4090 box (the DDP case, ~$1/h), not on 1 GPU, where the step is GPU-bound.
 - N8 stays on the list; revisit after N7 if SimOTA becomes the largest remaining slice.
+
+## N6: no host sync in a training step (2026-11-27; 2× RTX 4090; `tools/perf/box_n6.sh`)
+
+Box: 2× RTX 4090, 32 vCPUs, torch 2.5.1+cu124. V = the 8× L40S audit set without the tier-C `decode_reuse`. E1
+basketball recipe (800 ±5×32, AdamW), 16 images/GPU. Raw: `foundation-finetune/results/yolox/n6_gpu/`.
+
+Where the three remaining syncs came from (sync debug mode "error" + autograd anomaly mode names the forward op
+behind a backward sync):
+
+| sync | cause | flag | tier |
+|---|---|---|---|
+| 2 in backward | `torch.prod(·, 1)` in `IOUloss` (`area_p`, `area_i`): its backward checks the input for zeros on the host | `iou_nosync`: areas as w·h | B (forward bit-identical, gradients equal up to rounding) |
+| 1 in SimOTA | `fg_flat.nonzero()`: the number of positives sets every later shape | `dense_loss`: targets for every anchor + positive mask, masked dense losses, `num_fg` stays on the device | B (summation order) |
+| 4–5 per logging step | one `.item()` per loss meter, again in the tensorboard call | `log_onesync`: one stacked copy | A |
+
+| check | without N6 (V) | with N6 |
+|---|---:|---:|
+| host syncs per step, real 2-GPU run (rank 0, 20 iterations after 30 warm-up) | 3.50 | **0.15** (= the one copy on logging steps) |
+| 2-GPU step, 300 iterations, order V→N6 | 262.8 ms | 254.0 ms (−3.3%) |
+| same, order N6→V | 257.7 ms | 250.7 ms (−2.7%) |
+| profiled step, fixed 800 px | 232.6 ms, 53.7 ms waiting on syncs, GPU busy 89% | 223.8 ms, 0 ms waiting |
+| 60-step equivalence (`bench_step --check`, 1 GPU) | — | `log_onesync` bit-identical; all three: max loss diff 6.2% after 60 AdamW steps |
+| same, first 5 steps | upstream vs V: 0.44% | `iou_nosync` 0.10%, `dense_loss` 0.13%, all three 0.19% |
+| 1-GPU step (`bench_step`) | 139 ms | 139 ms |
+| 20-epoch basketball val AP, seeds 0/1/2 (final epoch) | 62.1 / 60.8 / 60.2 (mean 61.0) | 62.0 / 61.1 / 61.4 (mean 61.5) |
+| same, best epoch | 62.07 / 61.65 / 61.28 (61.67) | 61.98 / 61.56 / 61.41 (61.65) |
+
+- **Accuracy: a tie** (best-epoch means 61.67 vs 61.65 on 96 val images). Over 60 AdamW steps the losses drift apart
+  as rounding differences compound (upstream vs V does the same, more), but the first 5 steps agree to 0.2% and the
+  trained models match.
+- **Speed: −3% on 2× 4090**, where the step is already 89% GPU-busy. The 8-GPU Objects365 step (24% idle, see the
+  step audit above) is where the gain should be larger; measure it at the next Objects365 run, not on a dedicated box.
+- **What it unlocks:** with `dense_loss` the head's tensor shapes no longer depend on the data (only `G`, the
+  per-batch max gt count, from host counts), and nothing in the step waits on the GPU. That is N7's prerequisite.
+- `dense_loss` costs `[B·A, C]` element-wise work for the class loss: negligible at C = 5–80; at C = 365 (Objects365)
+  it is ~49 M elements per step at 640, ~0.2 GB fp32 for the targets. Check memory at the first Objects365 use.
+- Tooling: `YOLOX_AUDIT_SPAN_EPOCHS=1` lets audit runs cross epoch boundaries (basketball is 15 iterations/epoch, which
+  had ended every audit before its warm-up).
+- Verdict: adopt all three into the default set. Next: N7.
