@@ -46,6 +46,8 @@ TIER = {
     "resize_nosync": "A",  # P7: multiscale size without a CUDA tensor/.item() (gloo broadcast, no NCCL barrier)
     # pass 4 (tier C: changes the training data distribution, needs accuracy runs)
     "decode_reuse": "C",  # Q3: mosaic/mixup partners drawn from a per-worker pool of recently decoded images
+    # pass 5
+    "host_label_counts": "A",  # N5: per-image label counts from the CPU targets, not a GPU .tolist() sync in the loss
 }
 
 _FLAGS: set[str] = set()
@@ -81,6 +83,26 @@ def on(name: str) -> bool:
 
 def flags() -> set[str]:
     return set(_FLAGS)
+
+
+def label_counts(targets):
+    """``host_label_counts``: per-image label counts of a CPU target batch [B, M, 5] by the head's rule (row sum > 0),
+    as a list of Python ints. Returns None (the head then counts on the device) when any entry is negative: with
+    non-negative entries a row sum is > 0 exactly when some entry is > 0, which the trainer's dtype cast and the
+    multiscale rescale (a positive factor on the coordinates) cannot change, so the host counts equal the device
+    counts bit for bit. YOLOX targets (class id, clipped cx, cy, w, h; zero padding) are always non-negative."""
+    if targets.device.type != "cpu" or targets.dim() != 3 or bool((targets < 0).any()):
+        return None
+    return (targets.sum(dim=2) > 0).sum(dim=1).tolist()
+
+
+def set_label_counts(model, counts):
+    """``host_label_counts``: hand this step's host counts to the model's head (consumed by its next training
+    forward). Unwraps DDP/DataParallel (``.module``) and torch.compile (``._orig_mod``). Each DDP rank calls this with
+    its own batch's counts."""
+    while not hasattr(model, "head"):
+        model = model._orig_mod if hasattr(model, "_orig_mod") else model.module
+    model.head.host_label_counts = None if counts is None else list(counts)
 
 
 # picked up at import in subprocesses / spawned workers
