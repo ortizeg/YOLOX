@@ -336,13 +336,15 @@ class YOLOXHead(nn.Module):
         if self.use_l1:
             origin_preds = torch.cat(origin_preds, 1)
 
+        counts = self.take_host_label_counts(labels.shape[0]) if perf.on("host_label_counts") else None
         if perf.on("simota_batch"):
             (cls_targets, reg_targets, obj_targets, fg_masks, l1_targets, num_fg, num_gts) = self.get_targets_batched(
-                labels, nlabel, bbox_preds, obj_preds, cls_preds, expanded_strides, x_shifts, y_shifts, dtype)
+                labels, nlabel, bbox_preds, obj_preds, cls_preds, expanded_strides, x_shifts, y_shifts, dtype,
+                counts=counts)
         else:
             (cls_targets, reg_targets, obj_targets, fg_masks, l1_targets, num_fg, num_gts) = self.get_targets_loop(
                 labels, nlabel, outputs, bbox_preds, obj_preds, cls_preds, expanded_strides, x_shifts, y_shifts,
-                total_num_anchors, dtype)
+                total_num_anchors, dtype, counts=counts)
 
         num_fg = max(num_fg, 1)
         # simota_nosync returns positive indices (int64) instead of a boolean mask; x[idx] == x[mask] row for row
@@ -376,9 +378,27 @@ class YOLOXHead(nn.Module):
             num_fg / max(num_gts, 1),
         )
 
+    def take_host_label_counts(self, batch_size):
+        """``host_label_counts``: the per-image label counts the trainer computed from the CPU targets
+        (``perf.set_label_counts``), consumed once so a stale list can never be applied to a later batch. Returns
+        None (the caller counts on the device, one host sync, as without the flag) when none were provided, e.g.
+        a caller that drives the model directly; a wrong-length list is a caller bug and raises."""
+        counts = getattr(self, "host_label_counts", None)
+        self.host_label_counts = None
+        if counts is None:
+            if not getattr(self, "_warned_no_host_counts", False):
+                self._warned_no_host_counts = True
+                logger.warning("perf host_label_counts: no host label counts were set for this step; counting on "
+                               "the device instead (perf.set_label_counts before the forward avoids the sync)")
+            return None
+        if len(counts) != batch_size:
+            raise ValueError(f"perf host_label_counts: {len(counts)} host label counts for a batch of {batch_size}")
+        return counts
+
     def get_targets_loop(self, labels, nlabel, outputs, bbox_preds, obj_preds, cls_preds, expanded_strides,
-                         x_shifts, y_shifts, total_num_anchors, dtype):
-        """The original YOLOX per-image target assignment (unchanged apart from being a method)."""
+                         x_shifts, y_shifts, total_num_anchors, dtype, counts=None):
+        """The original YOLOX per-image target assignment (unchanged apart from being a method). ``counts``: host
+        label counts (``host_label_counts``) used instead of reading ``nlabel`` back per image."""
         cls_targets = []
         reg_targets = []
         l1_targets = []
@@ -389,7 +409,7 @@ class YOLOXHead(nn.Module):
         num_gts = 0.0
 
         for batch_idx in range(outputs.shape[0]):
-            num_gt = int(nlabel[batch_idx])
+            num_gt = int(nlabel[batch_idx]) if counts is None else counts[batch_idx]
             num_gts += num_gt
             if num_gt == 0:
                 cls_target = outputs.new_zeros((0, self.num_classes))
@@ -487,7 +507,7 @@ class YOLOXHead(nn.Module):
 
     @torch.no_grad()
     def get_targets_batched(self, labels, nlabel, bbox_preds, obj_preds, cls_preds, expanded_strides,
-                            x_shifts, y_shifts, dtype):
+                            x_shifts, y_shifts, dtype, counts=None):
         """SimOTA for the whole batch at once (perf flag ``simota_batch``).
 
         Same element-wise maths as ``get_targets_loop`` / ``get_assignments`` / ``simota_matching``, with ground
@@ -498,7 +518,8 @@ class YOLOXHead(nn.Module):
         B, A = bbox_preds.shape[:2]
         C = self.num_classes
         dev = bbox_preds.device
-        counts = nlabel.tolist()  # host sync 1
+        if counts is None:
+            counts = nlabel.tolist()  # host sync 1 (host_label_counts passes the host list instead)
         num_gts = float(sum(counts))
         G = max(counts) if counts else 0
         if G == 0:

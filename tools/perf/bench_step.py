@@ -34,7 +34,7 @@ def capture_batches(exp, k, batch):
     out = []
     for _ in range(k):
         inps, targets, _, _ = next(it)
-        out.append((inps.float().cuda(), targets.float().cuda()))
+        out.append((inps.float().cuda(), targets.float().cuda(), perf.label_counts(targets)))
     del it, loader
     return out
 
@@ -69,8 +69,10 @@ def run_set(exp, spec, init_sd, batches, iters, warmup, sizes, check):
     scaler = torch.amp.GradScaler("cuda")
     losses, times = [], []
     for i in range(warmup + iters):
-        inps, targets = batches[i % len(batches)]
+        inps, targets, counts = batches[i % len(batches)]
         inps, targets = inps.clone().half(), targets.clone().half()
+        if perf.on("host_label_counts"):  # the trainer's prefetcher computes these from the CPU batch
+            perf.set_label_counts(model, counts)
         tsize = sizes[(i // 10) % len(sizes)]
         inps, targets = exp.preprocess(inps, targets, (tsize, tsize))
         if cl:
