@@ -228,3 +228,29 @@ At batch 16 the H200 node is no faster than 8× L40S (1,143 img/s): the step is 
 Bug found and fixed on the way: the rank that builds `anno_cache` kept the parsed COCO object (28.6 GB at Objects365
 scale) and spawned workers each received a pickled copy, stalling start-up > 12 min; the builder now re-inits from the
 cache it just wrote (`coco.py`).
+
+## Decision: Objects365 hardware and when to re-pretrain (2026-11-27)
+
+**Hardware.** Use 8× L40S for Objects365 pretraining, not 8× H200. At batch 16 per GPU both run at about the same speed
+(1,143 vs 1,151 img/s without `decode_reuse`), and the L40S node costs about a quarter as much per hour ($9.60 vs $38.12):
+about $4 vs $12 per Objects365 epoch, about $80 vs $240 for 20 epochs. The H200 is only worth it at batch 64 per GPU
+(2,309 img/s, about $8 per epoch), which hasn't passed an accuracy check. Before the next run, check on the L40S box:
+throughput on the full 1.74 M images with `decode_reuse`; at least 64 CPU cores (8 workers per GPU); and a 15-min
+8× RTX 4090 comparison, which may be cheaper still.
+
+**When to re-pretrain on Objects365.**
+
+| Change | Objects365 again? | How to test it |
+|---|---|---|
+| Backbone or neck architecture (blocks, widths, normalisation, activation, input stem) | yes | full Objects365 → COCO |
+| Head architecture (new head, different output parameterisation such as DFL bins) | no | COCO fine-tune from the Objects365 checkpoint; re-initialise the head in the baseline arm too |
+| Loss, assigner, label assignment, augmentation, schedule | no | COCO fine-tune from the Objects365 checkpoint |
+
+Rules for the COCO screening runs:
+- Compare against a baseline arm fine-tuned from the same checkpoint with the same recipe and seeds, not against
+  the official 46.9.
+- Use at least 2 seeds when the expected gain is under about 0.5 mAP.
+- A gain is good evidence. A null result is not conclusive: features pretrained under the old loss can hide a benefit
+  that would show from scratch.
+- Re-pretrain once with the final loss before a release, if the COCO gain is near the noise.
+- The final decision is on basketball test (3 seeds, clip-clustered CI). COCO is the intermediate gate.
