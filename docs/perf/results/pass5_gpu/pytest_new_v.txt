@@ -1,0 +1,133 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.10, pytest-9.2.0, pluggy-1.7.0 -- /opt/conda/bin/python3
+hypothesis profile 'default' -> database=DirectoryBasedExampleDatabase(PosixPath('/workspace/YOLOX/.hypothesis/examples'))
+rootdir: /workspace/YOLOX
+configfile: pyproject.toml
+plugins: hypothesis-6.115.5
+collecting ... collected 78 items
+
+tests/perf/test_perf_head_nosync.py::test_head_nosync_train_identical[5-counts0-False-0-] PASSED [  1%]
+tests/perf/test_perf_head_nosync.py::test_head_nosync_train_identical[5-counts0-False-0-simota_batch] PASSED [  2%]
+tests/perf/test_perf_head_nosync.py::test_head_nosync_train_identical[5-counts0-False-0-simota_batch,simota_nosync] PASSED [  3%]
+tests/perf/test_perf_head_nosync.py::test_head_nosync_train_identical[5-counts1-True-1-] PASSED [  5%]
+tests/perf/test_perf_head_nosync.py::test_head_nosync_train_identical[5-counts1-True-1-simota_batch] PASSED [  6%]
+tests/perf/test_perf_head_nosync.py::test_head_nosync_train_identical[5-counts1-True-1-simota_batch,simota_nosync] PASSED [  7%]
+tests/perf/test_perf_head_nosync.py::test_head_nosync_train_identical[80-counts2-False-2-] PASSED [  8%]
+tests/perf/test_perf_head_nosync.py::test_head_nosync_train_identical[80-counts2-False-2-simota_batch] PASSED [ 10%]
+tests/perf/test_perf_head_nosync.py::test_head_nosync_train_identical[80-counts2-False-2-simota_batch,simota_nosync] PASSED [ 11%]
+tests/perf/test_perf_head_nosync.py::test_head_nosync_decode_identical PASSED [ 12%]
+tests/perf/test_perf_head_nosync.py::test_full_model_identical PASSED    [ 14%]
+tests/perf/test_perf_head_nosync.py::test_cache_keys_and_dtype PASSED    [ 15%]
+tests/perf/test_perf_head_nosync.py::test_cache_on_cuda_device PASSED    [ 16%]
+tests/perf/test_perf_head_nosync.py::test_head_paths_no_host_sync_cuda FAILED [ 17%]
+tests/perf/test_perf_host_counts.py::test_counts_match_rule[0] PASSED    [ 19%]
+tests/perf/test_perf_host_counts.py::test_counts_match_rule[1] PASSED    [ 20%]
+tests/perf/test_perf_host_counts.py::test_counts_match_rule[2] PASSED    [ 21%]
+tests/perf/test_perf_host_counts.py::test_counts_match_rule[3] PASSED    [ 23%]
+tests/perf/test_perf_host_counts.py::test_counts_match_rule[4] PASSED    [ 24%]
+tests/perf/test_perf_host_counts.py::test_counts_refuse_negative_entries PASSED [ 25%]
+tests/perf/test_perf_host_counts.py::test_set_label_counts_unwraps PASSED [ 26%]
+tests/perf/test_perf_host_counts.py::test_head_identical[5-counts0-False-0-] PASSED [ 28%]
+tests/perf/test_perf_host_counts.py::test_head_identical[5-counts0-False-0-simota_batch] PASSED [ 29%]
+tests/perf/test_perf_host_counts.py::test_head_identical[5-counts0-False-0-simota_batch,simota_nosync] PASSED [ 30%]
+tests/perf/test_perf_host_counts.py::test_head_identical[5-counts1-True-1-] PASSED [ 32%]
+tests/perf/test_perf_host_counts.py::test_head_identical[5-counts1-True-1-simota_batch] PASSED [ 33%]
+tests/perf/test_perf_host_counts.py::test_head_identical[5-counts1-True-1-simota_batch,simota_nosync] PASSED [ 34%]
+tests/perf/test_perf_host_counts.py::test_head_identical[80-counts2-False-2-] PASSED [ 35%]
+tests/perf/test_perf_host_counts.py::test_head_identical[80-counts2-False-2-simota_batch] PASSED [ 37%]
+tests/perf/test_perf_host_counts.py::test_head_identical[80-counts2-False-2-simota_batch,simota_nosync] PASSED [ 38%]
+tests/perf/test_perf_host_counts.py::test_head_identical[5-counts3-False-3-] PASSED [ 39%]
+tests/perf/test_perf_host_counts.py::test_head_identical[5-counts3-False-3-simota_batch] PASSED [ 41%]
+tests/perf/test_perf_host_counts.py::test_head_identical[5-counts3-False-3-simota_batch,simota_nosync] PASSED [ 42%]
+tests/perf/test_perf_host_counts.py::test_full_model_identical[] PASSED  [ 43%]
+tests/perf/test_perf_host_counts.py::test_full_model_identical[simota_batch] PASSED [ 44%]
+tests/perf/test_perf_host_counts.py::test_missing_counts_fall_back[] PASSED [ 46%]
+tests/perf/test_perf_host_counts.py::test_missing_counts_fall_back[simota_batch] PASSED [ 47%]
+tests/perf/test_perf_host_counts.py::test_flag_off_never_reads_counts[] PASSED [ 48%]
+tests/perf/test_perf_host_counts.py::test_flag_off_never_reads_counts[simota_batch] PASSED [ 50%]
+tests/perf/test_perf_host_counts.py::test_prefetcher_counts_cuda FAILED  [ 51%]
+tests/perf/test_perf_host_counts.py::test_no_count_sync_cuda[simota_batch-1] PASSED [ 52%]
+tests/perf/test_perf_host_counts.py::test_no_count_sync_cuda[simota_batch,simota_nosync-1] PASSED [ 53%]
+tests/perf/test_perf_host_counts.py::test_no_count_sync_cuda[-3] PASSED  [ 55%]
+tests/perf/test_perf_fused_amp.py::test_rebuild_keeps_class_and_groups[sgd] PASSED [ 56%]
+tests/perf/test_perf_fused_amp.py::test_rebuild_keeps_class_and_groups[adamw] PASSED [ 57%]
+tests/perf/test_perf_fused_amp.py::test_rebuild_yolox_exp_optimizer PASSED [ 58%]
+tests/perf/test_perf_fused_amp.py::test_fused_step_allclose[sgd] PASSED  [ 60%]
+tests/perf/test_perf_fused_amp.py::test_fused_step_allclose[adamw] PASSED [ 61%]
+tests/perf/test_perf_fused_amp.py::test_resume_interchangeable[unfused_to_fused-sgd] PASSED [ 62%]
+tests/perf/test_perf_fused_amp.py::test_resume_interchangeable[unfused_to_fused-adamw] PASSED [ 64%]
+tests/perf/test_perf_fused_amp.py::test_resume_interchangeable[fused_to_unfused-sgd] PASSED [ 65%]
+tests/perf/test_perf_fused_amp.py::test_resume_interchangeable[fused_to_unfused-adamw] PASSED [ 66%]
+tests/perf/test_perf_fused_amp.py::test_saved_state_dict_does_not_touch_live_state PASSED [ 67%]
+tests/perf/test_perf_fused_amp.py::test_existing_state_carried_over PASSED [ 69%]
+tests/perf/test_perf_fused_amp.py::test_flag_off_untouched PASSED        [ 70%]
+tests/perf/test_perf_fused_amp.py::test_flag_on_cpu_params_keep_original PASSED [ 71%]
+tests/perf/test_perf_fused_amp.py::test_flag_on_replaces_exp_cache PASSED [ 73%]
+tests/perf/test_perf_fused_amp.py::test_unsupported_class_kept PASSED    [ 74%]
+tests/perf/test_perf_fused_amp.py::test_cuda_no_host_sync_in_scaler_step[sgd] PASSED [ 75%]
+tests/perf/test_perf_fused_amp.py::test_cuda_no_host_sync_in_scaler_step[adamw] PASSED [ 76%]
+tests/perf/test_perf_fused_amp.py::test_cuda_unfused_scaler_step_does_sync PASSED [ 78%]
+tests/perf/test_perf_fused_amp.py::test_cuda_amp_fused_allclose[sgd] PASSED [ 79%]
+tests/perf/test_perf_fused_amp.py::test_cuda_amp_fused_allclose[adamw] PASSED [ 80%]
+tests/perf/test_perf_cv2_threads.py::test_flag_registered PASSED         [ 82%]
+tests/perf/test_perf_cv2_threads.py::test_init_fn_flag_on_limits_cv2 PASSED [ 83%]
+tests/perf/test_perf_cv2_threads.py::test_init_fn_flag_off_leaves_cv2_unchanged PASSED [ 84%]
+tests/perf/test_perf_cv2_threads.py::test_real_workers_see_flag PASSED   [ 85%]
+tests/perf/test_perf_cv2_threads.py::test_pipeline_identical_with_cv2_single_thread PASSED [ 87%]
+tests/perf/test_perf_cv2_threads.py::test_pipeline_identical_flag_on_off PASSED [ 88%]
+tests/perf/test_perf_cv2_threads.py::test_distributed_worker_limits_cv2_when_on PASSED [ 89%]
+tests/perf/test_perf_lean_ckpt.py::test_flag_off_original_files PASSED   [ 91%]
+tests/perf/test_perf_lean_ckpt.py::test_save_interval_schedule PASSED    [ 92%]
+tests/perf/test_perf_lean_ckpt.py::test_save_interval_default_every_epoch PASSED [ 93%]
+tests/perf/test_perf_lean_ckpt.py::test_final_epoch_written_without_eval PASSED [ 94%]
+tests/perf/test_perf_lean_ckpt.py::test_lean_files_resume_and_eval_load PASSED [ 96%]
+tests/perf/test_perf_lean_ckpt.py::test_last_epoch_survives_next_latest PASSED [ 97%]
+tests/perf/test_perf_lean_ckpt.py::test_link_fallback_copy PASSED        [ 98%]
+tests/perf/test_perf_lean_ckpt.py::test_composes_with_async_ckpt PASSED  [100%]
+
+=================================== FAILURES ===================================
+______________________ test_head_paths_no_host_sync_cuda _______________________
+tests/perf/test_perf_head_nosync.py:139: in test_head_paths_no_host_sync_cuda
+    head(xin)  # inference decode on the device
+    ^^^^^^^^^
+/opt/conda/lib/python3.11/site-packages/torch/nn/modules/module.py:1736: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/conda/lib/python3.11/site-packages/torch/nn/modules/module.py:1747: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+yolox/models/yolo_head.py:152: in forward
+    x = self.stems[k](x)
+        ^^^^^^^^^^^^^^^^
+/opt/conda/lib/python3.11/site-packages/torch/nn/modules/module.py:1736: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/conda/lib/python3.11/site-packages/torch/nn/modules/module.py:1747: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+yolox/models/network_blocks.py:53: in forward
+    return self.act(self.bn(self.conv(x)))
+                            ^^^^^^^^^^^^
+/opt/conda/lib/python3.11/site-packages/torch/nn/modules/module.py:1736: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/conda/lib/python3.11/site-packages/torch/nn/modules/module.py:1747: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/conda/lib/python3.11/site-packages/torch/nn/modules/conv.py:554: in forward
+    return self._conv_forward(input, self.weight, self.bias)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/conda/lib/python3.11/site-packages/torch/nn/modules/conv.py:549: in _conv_forward
+    return F.conv2d(
+E   RuntimeError: Input type (torch.cuda.HalfTensor) and weight type (torch.cuda.FloatTensor) should be the same
+_________________________ test_prefetcher_counts_cuda __________________________
+tests/perf/test_perf_host_counts.py:171: in test_prefetcher_counts_cuda
+    batches = [(torch.zeros(len(t), 3, 8, 8).pin_memory(), random_targets(i, B=len(t)).pin_memory(), None, None)
+tests/perf/test_perf_host_counts.py:171: in <listcomp>
+    batches = [(torch.zeros(len(t), 3, 8, 8).pin_memory(), random_targets(i, B=len(t)).pin_memory(), None, None)
+                                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/perf/test_perf_host_counts.py:31: in random_targets
+    t[2, :, 0] = 0  # class 0 everywhere: those rows still count through the box
+    ^^^^^^^^^^
+E   IndexError: index 2 is out of bounds for dimension 0 with size 2
+======================== 2 failed, 76 passed in 37.50s =========================

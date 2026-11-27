@@ -1,0 +1,64 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.10, pytest-9.2.0, pluggy-1.7.0
+rootdir: /workspace/YOLOX
+configfile: pyproject.toml
+plugins: hypothesis-6.115.5
+collected 142 items
+
+tests/perf/test_perf_cv2_threads.py .......                              [  4%]
+tests/perf/test_perf_data.py .........                                   [ 11%]
+tests/perf/test_perf_fused_amp.py ....................                   [ 25%]
+tests/perf/test_perf_head_nosync.py .............F                       [ 35%]
+tests/perf/test_perf_host_counts.py .........................F...        [ 55%]
+tests/perf/test_perf_io.py ..                                            [ 57%]
+tests/perf/test_perf_lean_ckpt.py ........                               [ 62%]
+tests/perf/test_perf_model.py ................                           [ 73%]
+tests/perf/test_perf_pass3.py .............................              [ 94%]
+tests/perf/test_perf_pass4.py ........                                   [100%]
+
+=================================== FAILURES ===================================
+______________________ test_head_paths_no_host_sync_cuda _______________________
+tests/perf/test_perf_head_nosync.py:139: in test_head_paths_no_host_sync_cuda
+    head(xin)  # inference decode on the device
+    ^^^^^^^^^
+/opt/conda/lib/python3.11/site-packages/torch/nn/modules/module.py:1736: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/conda/lib/python3.11/site-packages/torch/nn/modules/module.py:1747: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+yolox/models/yolo_head.py:152: in forward
+    x = self.stems[k](x)
+        ^^^^^^^^^^^^^^^^
+/opt/conda/lib/python3.11/site-packages/torch/nn/modules/module.py:1736: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/conda/lib/python3.11/site-packages/torch/nn/modules/module.py:1747: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+yolox/models/network_blocks.py:53: in forward
+    return self.act(self.bn(self.conv(x)))
+                            ^^^^^^^^^^^^
+/opt/conda/lib/python3.11/site-packages/torch/nn/modules/module.py:1736: in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/conda/lib/python3.11/site-packages/torch/nn/modules/module.py:1747: in _call_impl
+    return forward_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/conda/lib/python3.11/site-packages/torch/nn/modules/conv.py:554: in forward
+    return self._conv_forward(input, self.weight, self.bias)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/conda/lib/python3.11/site-packages/torch/nn/modules/conv.py:549: in _conv_forward
+    return F.conv2d(
+E   RuntimeError: Input type (torch.cuda.HalfTensor) and weight type (torch.cuda.FloatTensor) should be the same
+_________________________ test_prefetcher_counts_cuda __________________________
+tests/perf/test_perf_host_counts.py:171: in test_prefetcher_counts_cuda
+    batches = [(torch.zeros(len(t), 3, 8, 8).pin_memory(), random_targets(i, B=len(t)).pin_memory(), None, None)
+tests/perf/test_perf_host_counts.py:171: in <listcomp>
+    batches = [(torch.zeros(len(t), 3, 8, 8).pin_memory(), random_targets(i, B=len(t)).pin_memory(), None, None)
+                                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/perf/test_perf_host_counts.py:31: in random_targets
+    t[2, :, 0] = 0  # class 0 everywhere: those rows still count through the box
+    ^^^^^^^^^^
+E   IndexError: index 2 is out of bounds for dimension 0 with size 2
+=================== 2 failed, 140 passed in 73.76s (0:01:13) ===================
