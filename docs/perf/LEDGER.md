@@ -319,3 +319,35 @@ Source: `src/super_gradients/training/losses/yolox_loss.py` (Apache-2.0).
     is screened by a COCO fine-tune from the Objects365 checkpoint.
 - **Revisit if:** a profile of the multi-GPU step shows loss/assignment above about 25%. Then run a 30-min A/B of
   their matcher vs ours on real Objects365 batches (~$1 on a 4090) before any accuracy run.
+
+## 8× RTX 4090 on the Objects365 sample (2026-11-27; `results/rtx4090_bench/`, `tools/perf/box_4090.sh`)
+
+Same setup as the 8× L40S rows: `exps/perf/yolox_m_objects365.py` (max_labels 50), patch0+1 (69,519 images), batch
+16/GPU, fp16, uncached JPEGs, about 260 iterations. Box: 8× RTX 4090 24 GB, EPYC 7663 (224 vCPUs), 504 GB RAM, $4.21/h,
+rented 14 min (about $1).
+
+| run | img/s | data_time | peak RAM | GPU memory |
+|---|---:|---:|---:|---:|
+| gated flags, 8 workers/GPU | 1,174 | 0.001 s | 49 GB | 22.2 / 24.6 GB |
+| + decode_reuse, 8 workers | 1,020 | 0.001 s | 52 GB | 22.2 GB |
+| + decode_reuse, 12 workers | 1,274 | 0.001 s | 65 GB | 22.2 GB |
+
+- **Noise:** each run has only about 25 logged iterations, and the multiscale size changes every 10. Normalised to 640 px
+  the three runs are 1,087 / 1,089 / 1,139 img/s, so `decode_reuse` shows no clear gain here. The L40S log, normalised the
+  same way, is 890 img/s, so the 4090 node is about 1.2× faster. CPU was about 96% idle.
+- **Cost per Objects365 epoch** (1,737,289 images):
+
+  | node | $/h | img/s | min/epoch | $/epoch | 20 epochs |
+  |---|---:|---:|---:|---:|---:|
+  | 8× RTX 4090 | 4.21 | 1,174 | 24.7 | 1.73 | ≈ $35 |
+  | 8× L40S | 9.60 | 1,143 | 25.3 | 4.05 | ≈ $81 |
+  | 8× H200 | 38.12 | 1,530 | 18.9 | 12.02 | ≈ $240 |
+
+- **Caveats before a 4090 pretrain:**
+  - GPU memory is tight: 22.2 of 24.6 GB at batch 16 with max_labels 50. Run the real pretrain config (max_labels 300,
+    crowded mosaics) for about 50 iterations before committing.
+  - Only one 8× 4090 offer met reliability ≥ 0.98, 64+ cores and 500 Mbps down.
+  - These are sample numbers, not the full 1.74 M images.
+
+**Decision update:** the preferred Objects365 node is 8× RTX 4090, about $35 for 20 epochs, if the max_labels 300 memory
+check passes. 8× L40S (48 GB) is the fallback, at about $81.

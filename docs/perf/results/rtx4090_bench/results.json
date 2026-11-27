@@ -1,0 +1,77 @@
+{
+ "box": {
+  "offer": 62787798,
+  "instance": 62851835,
+  "gpus": "8x RTX 4090 24GB",
+  "cpu": "AMD EPYC 7663, 224 vCPU",
+  "ram_gb": 504,
+  "location": "Taiwan",
+  "dph": 4.21,
+  "rented_utc": "12:01:30-12:15:22",
+  "spend_usd": 0.97
+ },
+ "exp": "exps/perf/yolox_m_objects365.py (max_labels 50), Objects365 patch0+1 (69,519 img), batch 16/GPU, fp16, 8 GPUs, OMP_NUM_THREADS=1",
+ "flags": "V,P3 (pass 1-3 gated set incl anno_cache) [+decode_reuse]",
+ "runs": {
+  "perf_8g_w8": {
+   "n_logged": 25,
+   "max_iter": 300,
+   "median_iter_s": 0.109,
+   "img_s": 1174.3,
+   "median_data_s": 0.001,
+   "max_data_s": 0.001,
+   "peak_ram_mib": 50142,
+   "first_iter_s": 50,
+   "oom": 0,
+   "gpu_mem_mib": 22200
+  },
+  "reuse_8g_w12": {
+   "n_logged": 28,
+   "max_iter": 330,
+   "median_iter_s": 0.1005,
+   "img_s": 1273.6,
+   "median_data_s": 0.001,
+   "max_data_s": 0.001,
+   "peak_ram_mib": 66211,
+   "first_iter_s": 50,
+   "oom": 0,
+   "gpu_mem_mib": 22200
+  },
+  "reuse_8g_w8": {
+   "n_logged": 26,
+   "max_iter": 310,
+   "median_iter_s": 0.1255,
+   "img_s": 1019.9,
+   "median_data_s": 0.001,
+   "max_data_s": 0.001,
+   "peak_ram_mib": 52737,
+   "first_iter_s": 40,
+   "oom": 0,
+   "gpu_mem_mib": 22200
+  }
+ },
+ "size_normalised_img_s_640": {
+  "perf_8g_w8": 1087,
+  "reuse_8g_w8": 1089,
+  "reuse_8g_w12": 1139,
+  "l40s_perf_8g_w8_same_metric": 890
+ },
+ "per_epoch": {
+  "rtx4090_perf_w8": [
+   24.7,
+   1.73
+  ],
+  "rtx4090_reuse_w12": [
+   22.7,
+   1.6
+  ],
+  "l40s": [
+   25.3,
+   4.05
+  ],
+  "h200_b16_run": [
+   18.9,
+   12.02
+  ]
+ }
+}

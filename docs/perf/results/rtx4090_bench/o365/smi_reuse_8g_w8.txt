@@ -1,0 +1,14 @@
+index, utilization.gpu [%], memory.used [MiB], memory.total [MiB], power.draw [W]
+0, 94 %, 22197 MiB, 24564 MiB, 312.14 W
+1, 94 %, 22208 MiB, 24564 MiB, 335.11 W
+2, 95 %, 22208 MiB, 24564 MiB, 318.24 W
+3, 93 %, 22208 MiB, 24564 MiB, 317.92 W
+4, 94 %, 22208 MiB, 24564 MiB, 315.62 W
+5, 97 %, 22208 MiB, 24564 MiB, 322.30 W
+6, 90 %, 22208 MiB, 24564 MiB, 318.24 W
+7, 93 %, 22208 MiB, 24564 MiB, 325.48 W
+top - 12:12:49 up  9:44,  0 users,  load average: 9.03, 4.53, 3.18
+Tasks:  84 total,  17 running,  67 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  7.8 us,  4.4 sy,  0.0 ni, 87.8 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+MiB Mem : 515759.8 total, 396236.0 free,  52668.8 used,  66855.1 buff/cache
+MiB Swap:   8192.0 total,   8192.0 free,      0.0 used. 456062.8 avail Mem 
