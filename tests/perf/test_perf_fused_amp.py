@@ -20,8 +20,10 @@ RTOL, ATOL = 1e-5, 1e-6
 
 
 def tiny_model(seed=0, device="cpu"):
+    """conv(no bias, as YOLOX BaseConv) -> BN -> SiLU -> conv(bias). A conv bias right before BN has a ~0 gradient
+    that Adam amplifies into noise, which would make fused vs unfused comparisons chaotic."""
     torch.manual_seed(seed)
-    return nn.Sequential(nn.Conv2d(3, 8, 3), nn.BatchNorm2d(8), nn.SiLU(), nn.Conv2d(8, 4, 1)).to(device)
+    return nn.Sequential(nn.Conv2d(3, 8, 3, bias=False), nn.BatchNorm2d(8), nn.SiLU(), nn.Conv2d(8, 4, 1)).to(device)
 
 
 def yolox_groups(model):
@@ -205,6 +207,58 @@ def test_unsupported_class_kept():
     assert rebuild_fused(opt, require_cuda=False) is opt
 
 
+def scaler_run(model, opt, n, device, inf_steps=(0,)):
+    """n GradScaler steps with the trainer's per-iteration lr rewrite; grads are forced to inf on inf_steps, so
+    GradScaler must skip those updates (the first one is skipped before any momentum buffer exists)."""
+    scaler = torch.amp.GradScaler(device, init_scale=65536.0)
+    g = torch.Generator().manual_seed(0)
+    for i in range(n):
+        x = torch.randn(4, 3, 16, 16, generator=g).to(device)
+        loss = model(x).float().pow(2).mean()
+        if i in inf_steps:
+            loss = loss * float("inf")
+        opt.zero_grad()
+        scaler.scale(loss).backward()
+        scaler.step(opt)
+        scaler.update()
+        for grp in opt.param_groups:
+            grp["lr"] = 0.01 * (1 - i / n) + 1e-4
+    return scaler, [p.detach().clone() for p in model.parameters()]
+
+
+@pytest.mark.parametrize("kind", list(MAKERS))
+def test_scaler_inf_first_step_regression(kind, monkeypatch):
+    """Regression (RTX 4090 bench went NaN with SGD): torch 2.5.1 fused SGD stores torch.empty_like momentum
+    buffers when GradScaler skips its first step; the rebuild zero-initialises them so this matches unfused.
+    Fresh CPU memory is usually zero, so empty_like is made to return NaN, as recycled CUDA cache memory can."""
+    monkeypatch.setattr(torch, "empty_like", lambda t, *a, **k: torch.full_like(t, float("nan")))
+    m0, m1 = tiny_model(), tiny_model()
+    s0, ref = scaler_run(m0, MAKERS[kind](m0), 60, "cpu", inf_steps=(0, 1, 17))
+    opt = rebuild_fused(MAKERS[kind](m1), require_cuda=False)
+    s1, new = scaler_run(m1, opt, 60, "cpu", inf_steps=(0, 1, 17))
+    assert s0.get_scale() == s1.get_scale()
+    assert all(torch.isfinite(p).all() for p in new)
+    assert all(torch.isfinite(t).all() for st in opt.state.values() for t in st.values() if torch.is_tensor(t))
+    assert_close(ref, new)
+
+
+def test_sgd_skipped_first_step_leaves_zero_momentum(monkeypatch):
+    monkeypatch.setattr(torch, "empty_like", lambda t, *a, **k: torch.full_like(t, float("nan")))
+    m = tiny_model()
+    opt = rebuild_fused(make_sgd(m), require_cuda=False)
+    w = [p.detach().clone() for p in m.parameters()]
+    scaler_run(m, opt, 1, "cpu", inf_steps=(0,))
+    assert all(torch.equal(a, b) for a, b in zip(w, m.parameters()))
+    for p in m.parameters():
+        assert torch.equal(opt.state[p]["momentum_buffer"], torch.zeros_like(p))
+
+
+def test_sgd_dampening_kept_unfused():
+    m = tiny_model()
+    opt = torch.optim.SGD(m.parameters(), lr=0.01, momentum=0.9, dampening=0.1)
+    assert rebuild_fused(opt, require_cuda=False) is opt
+
+
 cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="needs CUDA")
 
 
@@ -269,5 +323,16 @@ def test_cuda_amp_fused_allclose(kind):
     s0, ref = amp_steps(m0, MAKERS[kind](m0), 8)
     s1, new = amp_steps(m1, rebuild_fused(MAKERS[kind](m1)), 8)
     assert s0.get_scale() == s1.get_scale()
+    for x, y in zip(ref, new):
+        torch.testing.assert_close(x, y, rtol=1e-4, atol=1e-5)
+
+
+@cuda
+@pytest.mark.parametrize("kind", list(MAKERS))
+def test_cuda_scaler_inf_first_step_regression(kind):
+    m0, m1 = tiny_model(device="cuda"), tiny_model(device="cuda")
+    _, ref = scaler_run(m0, MAKERS[kind](m0), 60, "cuda", inf_steps=(0, 1, 17))
+    _, new = scaler_run(m1, rebuild_fused(MAKERS[kind](m1)), 60, "cuda", inf_steps=(0, 1, 17))
+    assert all(torch.isfinite(p).all() for p in new)
     for x, y in zip(ref, new):
         torch.testing.assert_close(x, y, rtol=1e-4, atol=1e-5)
