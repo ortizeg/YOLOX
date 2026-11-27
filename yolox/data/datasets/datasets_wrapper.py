@@ -161,11 +161,20 @@ class CacheDataset(Dataset, metaclass=ABCMeta):
         if self.cache and self.cache_type == "disk":
             self.cache_dir = os.path.join(data_dir, cache_dir_name)
             self.path_filename = path_filename
+        if self.cache and self.cache_type == "lazy":
+            # write-through disk cache: nothing is built up front; each worker stores an image the first time it
+            # decodes it (atomic rename) and later epochs read the stored copy. The directory is keyed by the
+            # resize target so a different input size never reads stale images.
+            h, w = input_dimension
+            self.cache_dir = os.path.join(data_dir, f"{cache_dir_name}_{h}x{w}")
+            self.path_filename = path_filename
+            os.makedirs(self.cache_dir, exist_ok=True)
+            logger.info(f"lazy disk cache at {self.cache_dir} (filled during the first epoch)")
 
         if self.cache and self.cache_type == "ram":
             self.imgs = None
 
-        if self.cache:
+        if self.cache and self.cache_type != "lazy":
             self.cache_images(
                 num_imgs=num_imgs,
                 data_dir=data_dir,
@@ -174,7 +183,7 @@ class CacheDataset(Dataset, metaclass=ABCMeta):
             )
 
     def __del__(self):
-        if self.cache and self.cache_type == "ram":
+        if getattr(self, "cache", False) and self.cache_type == "ram":
             del self.imgs
 
     @abstractmethod
@@ -291,6 +300,17 @@ def cache_read_img(use_cache=True):
                     img = np.load(
                         os.path.join(
                             self.cache_dir, f"{self.path_filename[index].split('.')[0]}.npy"))
+                elif self.cache_type == "lazy":
+                    path = os.path.join(self.cache_dir, f"{os.path.splitext(self.path_filename[index])[0]}.npy")
+                    try:
+                        img = np.load(path)
+                    except (FileNotFoundError, ValueError, EOFError):
+                        img = read_img_fn(self, index)
+                        os.makedirs(os.path.dirname(path), exist_ok=True)
+                        tmp = f"{path}.{os.getpid()}.tmp"
+                        with open(tmp, "wb") as fh:
+                            np.save(fh, img)
+                        os.replace(tmp, path)  # atomic: readers never see a partial file
                 else:
                     raise ValueError(f"Unknown cache type: {self.cache_type}")
             else:

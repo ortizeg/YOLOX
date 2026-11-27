@@ -13,6 +13,7 @@ import torch.backends.cudnn as cudnn
 
 from yolox.exp import Exp, get_exp
 from yolox.core import Trainer
+from yolox.core.trainer import to_nchw
 from yolox.utils import configure_module, configure_omp
 from yolox.tools.train import make_parser
 
@@ -29,7 +30,7 @@ class AssignVisualizer(Trainer):
         iter_start_time = time.time()
 
         inps, targets = self.prefetcher.next()
-        inps = inps.to(self.data_type)
+        inps = to_nchw(inps, self.data_type)
         targets = targets.to(self.data_type)
         targets.requires_grad = False
         inps, targets = self.exp.preprocess(inps, targets, self.input_size)

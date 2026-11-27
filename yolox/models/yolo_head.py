@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from yolox.utils import bboxes_iou, cxcywh2xyxy, meshgrid, visualize_assign
+from yolox.utils import bboxes_iou, cxcywh2xyxy, meshgrid, perf, visualize_assign
 
 from .losses import IOUloss
 from .network_blocks import BaseConv, DWConv
@@ -277,6 +277,49 @@ class YOLOXHead(nn.Module):
         if self.use_l1:
             origin_preds = torch.cat(origin_preds, 1)
 
+        if perf.on("simota_batch"):
+            (cls_targets, reg_targets, obj_targets, fg_masks, l1_targets, num_fg, num_gts) = self.get_targets_batched(
+                labels, nlabel, bbox_preds, obj_preds, cls_preds, expanded_strides, x_shifts, y_shifts, dtype)
+        else:
+            (cls_targets, reg_targets, obj_targets, fg_masks, l1_targets, num_fg, num_gts) = self.get_targets_loop(
+                labels, nlabel, outputs, bbox_preds, obj_preds, cls_preds, expanded_strides, x_shifts, y_shifts,
+                total_num_anchors, dtype)
+
+        num_fg = max(num_fg, 1)
+        # simota_nosync returns positive indices (int64) instead of a boolean mask; x[idx] == x[mask] row for row
+        loss_iou = (
+            self.iou_loss(bbox_preds.view(-1, 4)[fg_masks], reg_targets)
+        ).sum() / num_fg
+        loss_obj = (
+            self.bcewithlog_loss(obj_preds.view(-1, 1), obj_targets)
+        ).sum() / num_fg
+        loss_cls = (
+            self.bcewithlog_loss(
+                cls_preds.view(-1, self.num_classes)[fg_masks], cls_targets
+            )
+        ).sum() / num_fg
+        if self.use_l1:
+            loss_l1 = (
+                self.l1_loss(origin_preds.view(-1, 4)[fg_masks], l1_targets)
+            ).sum() / num_fg
+        else:
+            loss_l1 = 0.0
+
+        reg_weight = 5.0
+        loss = reg_weight * loss_iou + loss_obj + loss_cls + loss_l1
+
+        return (
+            loss,
+            reg_weight * loss_iou,
+            loss_obj,
+            loss_cls,
+            loss_l1,
+            num_fg / max(num_gts, 1),
+        )
+
+    def get_targets_loop(self, labels, nlabel, outputs, bbox_preds, obj_preds, cls_preds, expanded_strides,
+                         x_shifts, y_shifts, total_num_anchors, dtype):
+        """The original YOLOX per-image target assignment (unchanged apart from being a method)."""
         cls_targets = []
         reg_targets = []
         l1_targets = []
@@ -350,7 +393,8 @@ class YOLOXHead(nn.Module):
                         "cpu",
                     )
 
-                torch.cuda.empty_cache()
+                if not perf.on("no_empty_cache"):
+                    torch.cuda.empty_cache()
                 num_fg += num_fg_img
 
                 cls_target = F.one_hot(
@@ -380,37 +424,159 @@ class YOLOXHead(nn.Module):
         fg_masks = torch.cat(fg_masks, 0)
         if self.use_l1:
             l1_targets = torch.cat(l1_targets, 0)
+        return cls_targets, reg_targets, obj_targets, fg_masks, l1_targets, num_fg, num_gts
 
-        num_fg = max(num_fg, 1)
-        loss_iou = (
-            self.iou_loss(bbox_preds.view(-1, 4)[fg_masks], reg_targets)
-        ).sum() / num_fg
-        loss_obj = (
-            self.bcewithlog_loss(obj_preds.view(-1, 1), obj_targets)
-        ).sum() / num_fg
-        loss_cls = (
-            self.bcewithlog_loss(
-                cls_preds.view(-1, self.num_classes)[fg_masks], cls_targets
-            )
-        ).sum() / num_fg
-        if self.use_l1:
-            loss_l1 = (
-                self.l1_loss(origin_preds.view(-1, 4)[fg_masks], l1_targets)
-            ).sum() / num_fg
+    @torch.no_grad()
+    def get_targets_batched(self, labels, nlabel, bbox_preds, obj_preds, cls_preds, expanded_strides,
+                            x_shifts, y_shifts, dtype):
+        """SimOTA for the whole batch at once (perf flag ``simota_batch``).
+
+        Same element-wise maths as ``get_targets_loop`` / ``get_assignments`` / ``simota_matching``, with ground
+        truths padded to the batch maximum and every anchor kept (non-candidates masked) instead of a Python loop
+        per image and per ground truth. Two host syncs per batch instead of several per image. Targets come out in
+        the same order (image-major, anchor order), so the losses are unchanged.
+        """
+        B, A = bbox_preds.shape[:2]
+        C = self.num_classes
+        dev = bbox_preds.device
+        counts = nlabel.tolist()  # host sync 1
+        num_gts = float(sum(counts))
+        G = max(counts) if counts else 0
+        if G == 0:
+            z = bbox_preds.new_zeros
+            fg = torch.zeros(B * A, dtype=torch.bool, device=dev)
+            return (z((0, C)), z((0, 4)), z((B * A, 1)).to(dtype), fg, z((0, 4)), 0.0, num_gts)
+
+        gt = labels[:, :G]  # [B, G, 5] = cls, cx, cy, w, h (valid rows first)
+        valid = torch.arange(G, device=dev)[None, :] < nlabel[:, None]  # [B, G]
+        gt_boxes = gt[..., 1:5]
+        gt_classes = gt[..., 0]
+
+        # geometry constraint (get_geometry_constraint), per anchor and gt
+        strides = expanded_strides[0]  # [A]
+        xc = ((x_shifts[0] + 0.5) * strides).unsqueeze(0)  # [1, A]
+        yc = ((y_shifts[0] + 0.5) * strides).unsqueeze(0)
+        center_dist = strides.unsqueeze(0) * 1.5
+        gl = gt_boxes[..., 0:1] - center_dist  # [B, G, A]
+        gr = gt_boxes[..., 0:1] + center_dist
+        gtp = gt_boxes[..., 1:2] - center_dist
+        gb = gt_boxes[..., 1:2] + center_dist
+        center_deltas = torch.stack([xc - gl, yc - gtp, gr - xc, gb - yc], 3)
+        is_in_centers = (center_deltas.min(dim=-1).values > 0.0) & valid[..., None]  # [B, G, A]
+        del center_deltas, gl, gr, gtp, gb
+        cand = is_in_centers.any(dim=1)  # [B, A]  == fg_mask before matching
+
+        # pairwise IoU (bboxes_iou, xyxy=False), same ops broadcast over [B, G, A]
+        a = gt_boxes[:, :, None, :]
+        b = bbox_preds[:, None, :, :]
+        tl = torch.max(a[..., :2] - a[..., 2:] / 2, b[..., :2] - b[..., 2:] / 2)
+        br = torch.min(a[..., :2] + a[..., 2:] / 2, b[..., :2] + b[..., 2:] / 2)
+        area_a = torch.prod(a[..., 2:], -1)
+        area_b = torch.prod(b[..., 2:], -1)
+        en = (tl < br).to(tl.dtype).prod(dim=-1)
+        area_i = torch.prod(br - tl, -1) * en
+        ious = area_i / (area_a + area_b - area_i)  # [B, G, A]
+        del tl, br, en, area_i, area_a, area_b
+        keep = cand[:, None, :] & valid[..., None]
+        ious = torch.where(keep, ious, ious.new_zeros(()))
+        ious_loss = -torch.log(ious + 1e-8)
+
+        # class cost
+        with torch.amp.autocast("cuda", enabled=False):
+            p = (cls_preds.float().sigmoid() * obj_preds.float().sigmoid()).sqrt()  # [B, A, C]
+            gcls = gt_classes.to(torch.int64).clamp(0, C - 1)
+            if perf.on("cls_cost_algebra"):
+                # BCE summed over classes with a one-hot target = sum_k -log(1-p_k) + log(1-p_c) - log(p_c),
+                # with the same -100 clamp as F.binary_cross_entropy
+                l1m = torch.clamp(torch.log1p(-p), min=-100)  # log(1-p)
+                l0 = torch.clamp(torch.log(p), min=-100)
+                base = -l1m.sum(-1)  # [B, A]
+                idx = gcls[:, :, None].expand(B, G, A)
+                pick1 = torch.gather(l1m[:, None].expand(B, G, A, C), 3, idx[..., None])[..., 0]
+                pick0 = torch.gather(l0[:, None].expand(B, G, A, C), 3, idx[..., None])[..., 0]
+                cls_cost = base[:, None, :] + pick1 - pick0
+            else:
+                onehot = F.one_hot(gcls, C).float()  # [B, G, C]
+                cls_cost = torch.empty((B, G, A), dtype=torch.float32, device=dev)
+                for bi in range(B):  # per image keeps the [G, A, C] tensor small; no host sync
+                    cls_cost[bi] = F.binary_cross_entropy(
+                        p[bi].unsqueeze(0).repeat(G, 1, 1),
+                        onehot[bi].unsqueeze(1).repeat(1, A, 1),
+                        reduction="none",
+                    ).sum(-1)
+            del p
+
+        cost = cls_cost + 3.0 * ious_loss + float(1e6) * (~is_in_centers)
+        inf = torch.tensor(float("inf"), device=dev)
+        cost = torch.where(keep, cost, inf)  # non-candidates and padded gts never match
+        del cls_cost, ious_loss
+
+        # dynamic k (simota_matching)
+        n_candidate_k = min(10, A)
+        topk_ious, _ = torch.topk(ious, n_candidate_k, dim=2)
+        dynamic_ks = torch.clamp(topk_ious.sum(2).int(), min=1) * valid  # [B, G]
+        if perf.on("simota_nosync"):
+            kmax = n_candidate_k  # dynamic_k <= n_candidate_k (sum of <= 10 IoUs <= 1); ranks >= dynamic_k are masked
         else:
-            loss_l1 = 0.0
+            kmax = int(dynamic_ks.max())  # host sync 2
+        _, pos = torch.topk(cost, kmax, dim=2, largest=False)  # [B, G, kmax]
+        rank_ok = torch.arange(kmax, device=dev)[None, None, :] < dynamic_ks[..., None]
+        matching = torch.zeros((B, G, A), dtype=torch.uint8, device=dev)
+        matching.scatter_(2, pos, rank_ok.to(torch.uint8))
 
-        reg_weight = 5.0
-        loss = reg_weight * loss_iou + loss_obj + loss_cls + loss_l1
+        # one anchor matched to several gts -> keep the cheapest gt
+        anchor_matching_gt = matching.sum(1)  # [B, A]
+        multiple = anchor_matching_gt > 1
+        cost_argmin = cost.argmin(dim=1)  # [B, A]
+        best = F.one_hot(cost_argmin, G).permute(0, 2, 1).to(torch.uint8)  # [B, G, A]
+        matching = torch.where(multiple[:, None, :], best, matching)
+        fg = anchor_matching_gt > 0  # [B, A]
 
-        return (
-            loss,
-            reg_weight * loss_iou,
-            loss_obj,
-            loss_cls,
-            loss_l1,
-            num_fg / max(num_gts, 1),
-        )
+        fg_flat = fg.reshape(-1)
+        matched_gt_inds = matching.argmax(dim=1)  # [B, A]
+        pred_ious = (matching * ious).sum(1)  # [B, A]
+        if perf.on("simota_nosync"):
+            # one nonzero (the only sync after the counts) gives every positive's flat index, in the same
+            # image-major anchor order as boolean-mask indexing; everything below gathers with it
+            fg_idx = fg_flat.nonzero().squeeze(1)
+            mb = torch.div(fg_idx, A, rounding_mode="floor")
+            aidx = fg_idx - mb * A
+            mg = matched_gt_inds.reshape(-1).index_select(0, fg_idx)
+            gt_matched_classes = gt_classes[mb, mg]
+            cls_targets = F.one_hot(gt_matched_classes.to(torch.int64), C) * \
+                pred_ious.reshape(-1).index_select(0, fg_idx).unsqueeze(-1)
+            reg_targets = gt_boxes[mb, mg]
+            obj_targets = fg_flat.unsqueeze(-1).to(dtype)
+            l1_targets = None
+            if self.use_l1:
+                l1_targets = self.get_l1_target(
+                    bbox_preds.new_zeros((int(fg_idx.numel()), 4)),
+                    reg_targets,
+                    strides[aidx],
+                    x_shifts=x_shifts[0][aidx],
+                    y_shifts=y_shifts[0][aidx],
+                )
+            num_fg = float(fg_idx.numel())  # known on the host after nonzero: no extra sync
+            return cls_targets, reg_targets, obj_targets, fg_idx, l1_targets, num_fg, num_gts
+        bidx = torch.arange(B, device=dev)[:, None].expand(B, A)
+        mg = matched_gt_inds[fg]
+        mb = bidx[fg]
+        gt_matched_classes = gt_classes[mb, mg]
+        cls_targets = F.one_hot(gt_matched_classes.to(torch.int64), C) * pred_ious[fg].unsqueeze(-1)
+        reg_targets = gt_boxes[mb, mg]
+        obj_targets = fg_flat.unsqueeze(-1).to(dtype)
+        l1_targets = None
+        if self.use_l1:
+            aidx = torch.arange(A, device=dev)[None, :].expand(B, A)[fg]
+            l1_targets = self.get_l1_target(
+                bbox_preds.new_zeros((int(mg.numel()), 4)),
+                reg_targets,
+                strides[aidx],
+                x_shifts=x_shifts[0][aidx],
+                y_shifts=y_shifts[0][aidx],
+            )
+        num_fg = float(fg_flat.sum().item())  # host sync 3 (the loss divides by a Python float, as before)
+        return cls_targets, reg_targets, obj_targets, fg_flat, l1_targets, num_fg, num_gts
 
     def get_l1_target(self, l1_target, gt, stride, x_shifts, y_shifts, eps=1e-8):
         l1_target[:, 0] = gt[:, 0] / stride - x_shifts

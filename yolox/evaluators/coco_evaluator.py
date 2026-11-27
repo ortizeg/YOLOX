@@ -18,6 +18,7 @@ import numpy as np
 import torch
 
 from yolox.data.datasets import COCO_CLASSES
+from yolox.utils import perf
 from yolox.utils import (
     gather,
     is_main_process,
@@ -166,7 +167,12 @@ class COCOEvaluator:
                 if is_time_record:
                     start = time.time()
 
-                outputs = model(imgs)
+                if perf.on("eval_amp") and not half:
+                    with torch.amp.autocast("cuda", dtype=torch.float16):
+                        outputs = model(imgs)
+                    outputs = outputs.float()
+                else:
+                    outputs = model(imgs)
                 if decoder is not None:
                     outputs = decoder(outputs, dtype=outputs.type())
 

@@ -10,6 +10,8 @@ import torch.distributed as dist
 from torch.utils.data.sampler import BatchSampler as torchBatchSampler
 from torch.utils.data.sampler import Sampler
 
+from yolox.utils import perf
+
 
 class YoloBatchSampler(torchBatchSampler):
     """
@@ -75,11 +77,15 @@ class InfiniteSampler(Sampler):
     def _infinite_indices(self):
         g = torch.Generator()
         g.manual_seed(self._seed)
+        # int_indices: the same permutation as Python ints; 0-d tensors cost a tensor object per index here and are
+        # pickled through shared memory on the way to the workers
+        as_int = perf.on("int_indices")
         while True:
             if self._shuffle:
-                yield from torch.randperm(self._size, generator=g)
+                perm = torch.randperm(self._size, generator=g)
             else:
-                yield from torch.arange(self._size)
+                perm = torch.arange(self._size)
+            yield from (perm.tolist() if as_int else perm)
 
     def __len__(self):
         return self._size // self._world_size

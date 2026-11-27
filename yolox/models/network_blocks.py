@@ -5,6 +5,8 @@
 import torch
 import torch.nn as nn
 
+from yolox.utils import perf
+
 
 class SiLU(nn.Module):
     """export-friendly version of nn.SiLU()"""
@@ -139,7 +141,13 @@ class SPPBottleneck(nn.Module):
 
     def forward(self, x):
         x = self.conv1(x)
-        x = torch.cat([x] + [m(x) for m in self.m], dim=1)
+        if perf.on("sppf") and [m.kernel_size for m in self.m] == [5, 9, 13]:
+            # max-pool 9 = pool 5 applied twice, 13 = three times (stride 1, -inf padding): exact
+            y1 = self.m[0](x)
+            y2 = self.m[0](y1)
+            x = torch.cat([x, y1, y2, self.m[0](y2)], dim=1)
+        else:
+            x = torch.cat([x] + [m(x) for m in self.m], dim=1)
         x = self.conv2(x)
         return x
 
@@ -193,6 +201,17 @@ class Focus(nn.Module):
         self.conv = BaseConv(in_channels * 4, out_channels, ksize, stride, act=act)
 
     def forward(self, x):
+        c = self.conv
+        if perf.on("focus_conv") and c.conv.kernel_size == (3, 3) and c.conv.stride == (1, 1) and c.conv.groups == 1:
+            # space-to-depth + 3x3 conv == one 6x6 stride-2 conv (padding 2) with the 3x3 weights scattered:
+            # slice g = (dy, dx) of the concat, tap (a, b) -> 6x6 tap (2a + dy, 2b + dx)
+            w3 = c.conv.weight
+            cin = x.shape[1]
+            w6 = w3.new_zeros(w3.shape[0], cin, 6, 6)
+            for g, (dy, dx) in enumerate(((0, 0), (1, 0), (0, 1), (1, 1))):
+                w6[:, :, dy::2, dx::2] = w3[:, g * cin:(g + 1) * cin]
+            y = torch.nn.functional.conv2d(x, w6, c.conv.bias, stride=2, padding=2)
+            return c.act(c.bn(y))
         # shape of x (b,c,w,h) -> y(b,4c,w/2,h/2)
         patch_top_left = x[..., ::2, ::2]
         patch_top_right = x[..., ::2, 1::2]

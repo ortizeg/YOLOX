@@ -15,13 +15,23 @@ import random
 import cv2
 import numpy as np
 
-from yolox.utils import xyxy2cxcywh
+from yolox.utils import perf, xyxy2cxcywh
 
 
 def augment_hsv(img, hgain=5, sgain=30, vgain=30):
     hsv_augs = np.random.uniform(-1, 1, 3) * [hgain, sgain, vgain]  # random gains
     hsv_augs *= np.random.randint(0, 2, 3)  # random selection of h, s, v
     hsv_augs = hsv_augs.astype(np.int16)
+    if perf.on("hsv_lut"):
+        # same draws, same integer maths, applied through 256-entry tables instead of on an int16 image copy
+        x = np.arange(256, dtype=np.int16)
+        lut_h = ((x + hsv_augs[0]) % 180).astype(img.dtype)
+        lut_s = np.clip(x + hsv_augs[1], 0, 255).astype(img.dtype)
+        lut_v = np.clip(x + hsv_augs[2], 0, 255).astype(img.dtype)
+        h, s, v = cv2.split(cv2.cvtColor(img, cv2.COLOR_BGR2HSV))
+        img_hsv = cv2.merge((cv2.LUT(h, lut_h), cv2.LUT(s, lut_s), cv2.LUT(v, lut_v)))
+        cv2.cvtColor(img_hsv, cv2.COLOR_HSV2BGR, dst=img)
+        return
     img_hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV).astype(np.int16)
 
     img_hsv[..., 0] = (img_hsv[..., 0] + hsv_augs[0]) % 180
@@ -134,27 +144,40 @@ def random_affine(
 def _mirror(image, boxes, prob=0.5):
     _, width, _ = image.shape
     if random.random() < prob:
-        image = image[:, ::-1]
+        # cv_flip: same pixels as the view, but contiguous, so the later copies are plain memcpy instead of a slow
+        # negative-stride element copy
+        image = cv2.flip(image, 1) if perf.on("cv_flip") else image[:, ::-1]
         boxes[:, 0::2] = width - boxes[:, 2::-2]
     return image, boxes
 
 
-def preproc(img, input_size, swap=(2, 0, 1)):
+def preproc(img, input_size, swap=(2, 0, 1), as_uint8=False):
+    if (perf.on("preproc_nopad") and img.dtype == np.uint8 and img.ndim == 3
+            and img.shape[0] == input_size[0] and img.shape[1] == input_size[1]):
+        # the image already fills the input exactly (every mosaic sample): r == 1, no resize, no 114 border visible,
+        # so the canvas + copy are skipped and the transpose reads the image directly
+        if as_uint8 and perf.on("hwc_transport") and swap == (2, 0, 1):
+            return np.ascontiguousarray(img), 1.0
+        return np.ascontiguousarray(img.transpose(swap), dtype=np.uint8 if as_uint8 else np.float32), 1.0
     if len(img.shape) == 3:
         padded_img = np.ones((input_size[0], input_size[1], 3), dtype=np.uint8) * 114
     else:
         padded_img = np.ones(input_size, dtype=np.uint8) * 114
 
     r = min(input_size[0] / img.shape[0], input_size[1] / img.shape[1])
-    resized_img = cv2.resize(
-        img,
-        (int(img.shape[1] * r), int(img.shape[0] * r)),
-        interpolation=cv2.INTER_LINEAR,
-    ).astype(np.uint8)
+    new_wh = (int(img.shape[1] * r), int(img.shape[0] * r))
+    if perf.on("skip_noop_resize") and new_wh == (img.shape[1], img.shape[0]) and img.dtype == np.uint8:
+        resized_img = img  # cv2.resize to the same size is a plain copy
+    else:
+        resized_img = cv2.resize(img, new_wh, interpolation=cv2.INTER_LINEAR).astype(np.uint8)
     padded_img[: int(img.shape[0] * r), : int(img.shape[1] * r)] = resized_img
 
+    if as_uint8 and perf.on("hwc_transport") and swap == (2, 0, 1):
+        # hwc_transport: keep HWC; the trainer permutes the uint8 batch on the GPU (same values, no CPU transpose)
+        return np.ascontiguousarray(padded_img), r
     padded_img = padded_img.transpose(swap)
-    padded_img = np.ascontiguousarray(padded_img, dtype=np.float32)
+    # uint8_transport: the batch stays uint8 until the trainer casts it on the GPU (values 0-255 are exact)
+    padded_img = np.ascontiguousarray(padded_img, dtype=np.uint8 if as_uint8 else np.float32)
     return padded_img, r
 
 
@@ -167,24 +190,33 @@ class TrainTransform:
     def __call__(self, image, targets, input_dim):
         boxes = targets[:, :4].copy()
         labels = targets[:, 4].copy()
+        u8 = perf.on("uint8_transport")
         if len(boxes) == 0:
             targets = np.zeros((self.max_labels, 5), dtype=np.float32)
-            image, r_o = preproc(image, input_dim)
+            image, r_o = preproc(image, input_dim, as_uint8=u8)
             return image, targets
 
-        image_o = image.copy()
-        targets_o = targets.copy()
-        height_o, width_o, _ = image_o.shape
-        boxes_o = targets_o[:, :4]
-        labels_o = targets_o[:, 4]
-        # bbox_o: [xyxy] to [c_x,c_y,w,h]
-        boxes_o = xyxy2cxcywh(boxes_o)
+        need_copy = True
+        if perf.on("skip_noop_resize"):
+            # The originals are only used when every box is filtered out below (min side <= 1 px after resize).
+            # Flip keeps widths, so if some box is clearly above 1 px (margin for float rounding) skip the copies.
+            r_pre = min(input_dim[0] / image.shape[0], input_dim[1] / image.shape[1])
+            side = np.minimum(boxes[:, 2] - boxes[:, 0], boxes[:, 3] - boxes[:, 1]) * r_pre
+            need_copy = not bool((side > 1.01).any())
+        if need_copy:
+            image_o = image.copy()
+            targets_o = targets.copy()
+            height_o, width_o, _ = image_o.shape
+            boxes_o = targets_o[:, :4]
+            labels_o = targets_o[:, 4]
+            # bbox_o: [xyxy] to [c_x,c_y,w,h]
+            boxes_o = xyxy2cxcywh(boxes_o)
 
         if random.random() < self.hsv_prob:
             augment_hsv(image)
         image_t, boxes = _mirror(image, boxes, self.flip_prob)
         height, width, _ = image_t.shape
-        image_t, r_ = preproc(image_t, input_dim)
+        image_t, r_ = preproc(image_t, input_dim, as_uint8=u8)
         # boxes [xyxy] 2 [cx,cy,w,h]
         boxes = xyxy2cxcywh(boxes)
         boxes *= r_
@@ -194,7 +226,8 @@ class TrainTransform:
         labels_t = labels[mask_b]
 
         if len(boxes_t) == 0:
-            image_t, r_o = preproc(image_o, input_dim)
+            assert need_copy, "skip_noop_resize: fallback reached without the original copy"
+            image_t, r_o = preproc(image_o, input_dim, as_uint8=u8)
             boxes_o *= r_o
             boxes_t = boxes_o
             labels_t = labels_o

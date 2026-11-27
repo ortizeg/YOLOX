@@ -7,7 +7,7 @@ import random
 import cv2
 import numpy as np
 
-from yolox.utils import adjust_box_anns, get_local_rank
+from yolox.utils import adjust_box_anns, get_local_rank, perf
 
 from ..data_augment import random_affine
 from .datasets_wrapper import Dataset
@@ -93,9 +93,9 @@ class MosaicDetection(Dataset):
                 img, _labels, _, img_id = self._dataset.pull_item(index)
                 h0, w0 = img.shape[:2]  # orig hw
                 scale = min(1. * input_h / h0, 1. * input_w / w0)
-                img = cv2.resize(
-                    img, (int(w0 * scale), int(h0 * scale)), interpolation=cv2.INTER_LINEAR
-                )
+                new_wh = (int(w0 * scale), int(h0 * scale))
+                if not (perf.on("skip_noop_resize") and new_wh == (w0, h0)):
+                    img = cv2.resize(img, new_wh, interpolation=cv2.INTER_LINEAR)
                 # generate output mosaic image
                 (h, w, c) = img.shape[:3]
                 if i_mosaic == 0:
@@ -146,6 +146,8 @@ class MosaicDetection(Dataset):
                 mosaic_img, mosaic_labels = self.mixup(mosaic_img, mosaic_labels, self.input_dim)
             mix_img, padded_labels = self.preproc(mosaic_img, mosaic_labels, self.input_dim)
             img_info = (mix_img.shape[1], mix_img.shape[0])
+            if perf.on("hwc_transport") and mix_img.dtype == np.uint8 and mix_img.shape[-1] == 3:
+                img_info = (mix_img.shape[0], mix_img.shape[2])  # the CHW value, (H, C), from the HWC array
 
             # -----------------------------------------------------------------
             # img_info and img_id are not used for training.
@@ -174,11 +176,11 @@ class MosaicDetection(Dataset):
             cp_img = np.ones(input_dim, dtype=np.uint8) * 114
 
         cp_scale_ratio = min(input_dim[0] / img.shape[0], input_dim[1] / img.shape[1])
-        resized_img = cv2.resize(
-            img,
-            (int(img.shape[1] * cp_scale_ratio), int(img.shape[0] * cp_scale_ratio)),
-            interpolation=cv2.INTER_LINEAR,
-        )
+        new_wh = (int(img.shape[1] * cp_scale_ratio), int(img.shape[0] * cp_scale_ratio))
+        if perf.on("skip_noop_resize") and new_wh == (img.shape[1], img.shape[0]):
+            resized_img = img
+        else:
+            resized_img = cv2.resize(img, new_wh, interpolation=cv2.INTER_LINEAR)
 
         cp_img[
             : int(img.shape[0] * cp_scale_ratio), : int(img.shape[1] * cp_scale_ratio)
@@ -191,7 +193,7 @@ class MosaicDetection(Dataset):
         cp_scale_ratio *= jit_factor
 
         if FLIP:
-            cp_img = cp_img[:, ::-1, :]
+            cp_img = cv2.flip(cp_img, 1) if perf.on("cv_flip") else cp_img[:, ::-1, :]
 
         origin_h, origin_w = cp_img.shape[:2]
         target_h, target_w = origin_img.shape[:2]
@@ -228,6 +230,12 @@ class MosaicDetection(Dataset):
         box_labels = cp_bboxes_transformed_np
         labels = np.hstack((box_labels, cls_labels))
         origin_labels = np.vstack((origin_labels, labels))
+        if perf.on("int_mixup") and origin_img.dtype == np.uint8:
+            # 0.5a + 0.5b is exact in float32 for 0-255 and the cast truncates, so it equals floor((a + b) / 2)
+            out = origin_img.astype(np.uint16)
+            out += padded_cropped_img
+            out >>= 1
+            return out.astype(np.uint8), origin_labels
         origin_img = origin_img.astype(np.float32)
         origin_img = 0.5 * origin_img + 0.5 * padded_cropped_img.astype(np.float32)
 

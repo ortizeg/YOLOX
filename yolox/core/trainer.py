@@ -3,6 +3,7 @@
 
 import datetime
 import os
+import threading
 import time
 from loguru import logger
 
@@ -12,6 +13,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from yolox.data import DataPrefetcher
 from yolox.exp import Exp
+from yolox.utils import perf
 from yolox.utils import (
     MeterBuffer,
     MlflowLogger,
@@ -32,6 +34,25 @@ from yolox.utils import (
     setup_logger,
     synchronize
 )
+
+
+def _to_cpu(obj):
+    """Deep copy of a checkpoint dict with every tensor moved to CPU (values unchanged)."""
+    if torch.is_tensor(obj):
+        return obj.detach().to("cpu", copy=True)
+    if isinstance(obj, dict):
+        return {k: _to_cpu(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return type(obj)(_to_cpu(v) for v in obj)
+    return obj
+
+
+def to_nchw(inps, dtype):
+    """Cast the loader batch to the training dtype. With ``hwc_transport`` the workers send [B, H, W, 3] uint8;
+    the permute + cast is one copy kernel into a contiguous NCHW tensor (same values as the CHW path)."""
+    if perf.on("hwc_transport") and inps.dtype == torch.uint8 and inps.dim() == 4 and inps.shape[-1] == 3:
+        return inps.permute(0, 3, 1, 2).to(dtype, memory_format=torch.contiguous_format)
+    return inps.to(dtype)
 
 
 class Trainer:
@@ -103,10 +124,12 @@ class Trainer:
         iter_start_time = time.time()
 
         inps, targets = self.prefetcher.next()
-        inps = inps.to(self.data_type)
+        inps = to_nchw(inps, self.data_type)
         targets = targets.to(self.data_type)
         targets.requires_grad = False
         inps, targets = self.exp.preprocess(inps, targets, self.input_size)
+        if self.channels_last:
+            inps = inps.contiguous(memory_format=torch.channels_last)
         data_end_time = time.time()
 
         with torch.amp.autocast("cuda", enabled=self.amp_training, dtype=self.amp_dtype):
@@ -145,6 +168,9 @@ class Trainer:
             "Model Summary: {}".format(get_model_info(model, self.exp.test_size))
         )
         model.to(self.device)
+        self.channels_last = perf.on("channels_last")
+        if self.channels_last:
+            model.to(memory_format=torch.channels_last)
 
         # optionally apply torch.compile
         if getattr(self.args, "compile", False):
@@ -153,6 +179,9 @@ class Trainer:
 
         # solver related init
         self.optimizer = self.exp.get_optimizer(self.args.batch_size)
+        if perf.on("fused_optim") and isinstance(self.optimizer, (torch.optim.Adam, torch.optim.AdamW)):
+            for g in self.optimizer.param_groups:  # same update rule, one fused kernel per group
+                g["fused"], g["foreach"] = True, False
 
         # value of epoch will be set in `resume_train`
         model = self.resume_train(model)
@@ -177,12 +206,21 @@ class Trainer:
             occupy_mem(self.local_rank)
 
         if self.is_distributed:
-            model = DDP(model, device_ids=[self.local_rank], broadcast_buffers=False)
+            model = DDP(model, device_ids=[self.local_rank], broadcast_buffers=False,
+                        gradient_as_bucket_view=perf.on("ddp_bucket_view"))
 
         if self.use_model_ema:
-            self.ema_model = ModelEMA(model, 0.9998)
+            # exp.ema_decay / exp.ema_tau default to YOLOX's 0.9998 / 2000 (tier C knob when changed)
+            self.ema_model = ModelEMA(model, getattr(self.exp, "ema_decay", 0.9998),
+                                      tau=getattr(self.exp, "ema_tau", 2000))
             self.ema_model.updates = self.max_iter * self.start_epoch
 
+        if perf.on("compile"):
+            # backbone + neck only (the head's loss has data-dependent shapes); in place, so state_dict keys,
+            # EMA and checkpoints are unchanged. Compiled after the EMA deepcopy.
+            from torch import _dynamo
+            _dynamo.config.cache_size_limit = max(_dynamo.config.cache_size_limit, 32)  # multiscale
+            (model.module if self.is_distributed else model).backbone.compile(dynamic=False)
         self.model = model
 
         self.evaluator = self.exp.get_evaluator(
@@ -208,6 +246,7 @@ class Trainer:
         logger.info("\n{}".format(model))
 
     def after_train(self):
+        self._join_ckpt_writer()
         logger.info(
             "Training of experiment is done and the best AP is {:.2f}".format(self.best_ap * 100)
         )
@@ -412,6 +451,12 @@ class Trainer:
             self.mlflow_logger.save_checkpoints(self.args, self.exp, self.file_name, self.epoch,
                                                 metadata, update_best_ckpt)
 
+    def _join_ckpt_writer(self):
+        w = getattr(self, "_ckpt_writer", None)
+        if w is not None:
+            w.join()
+            self._ckpt_writer = None
+
     def save_ckpt(self, ckpt_name, update_best_ckpt=False, ap=None):
         if self.rank == 0:
             save_model = self.ema_model.ema if self.use_model_ema else self.model
@@ -423,12 +468,22 @@ class Trainer:
                 "best_ap": self.best_ap,
                 "curr_ap": ap,
             }
-            save_checkpoint(
-                ckpt_state,
-                update_best_ckpt,
-                self.file_name,
-                ckpt_name,
-            )
+            if perf.on("async_ckpt"):
+                # snapshot to CPU now (training mutates the GPU tensors next step), write in the background;
+                # one write in flight at a time, joined at the end of training
+                self._join_ckpt_writer()
+                ckpt_state = _to_cpu(ckpt_state)
+                self._ckpt_writer = threading.Thread(
+                    target=save_checkpoint, args=(ckpt_state, update_best_ckpt, self.file_name, ckpt_name),
+                    daemon=False)
+                self._ckpt_writer.start()
+            else:
+                save_checkpoint(
+                    ckpt_state,
+                    update_best_ckpt,
+                    self.file_name,
+                    ckpt_name,
+                )
 
             if self.args.logger == "wandb":
                 self.wandb_logger.save_checkpoint(
