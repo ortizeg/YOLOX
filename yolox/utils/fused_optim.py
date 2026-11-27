@@ -26,6 +26,8 @@ The rebuilt optimizer has the same class and the same param groups (every per-gr
 
 from __future__ import annotations
 
+import inspect
+
 import torch
 from loguru import logger
 
@@ -112,6 +114,11 @@ def rebuild_fused(optimizer: torch.optim.Optimizer, require_cuda: bool = True) -
     orig_groups = [(g.get("fused"), g.get("foreach"), g.get("capturable", False)) for g in optimizer.param_groups]
     groups = [{**g, "params": list(g["params"]), "fused": True, "foreach": False} for g in optimizer.param_groups]
     defaults = {**optimizer.defaults, "fused": True, "foreach": False}
+    # only what the constructor takes: torch >= 2.10 AdamW keeps `decoupled_weight_decay` in its defaults (it shares
+    # Adam's implementation) but AdamW.__init__ does not accept it
+    params = inspect.signature(type(optimizer).__init__).parameters
+    if not any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        defaults = {k: v for k, v in defaults.items() if k in params}
     new = type(optimizer)(groups, **defaults)
     new.register_load_state_dict_post_hook(_keep_fused)
     if type(new) is torch.optim.SGD:

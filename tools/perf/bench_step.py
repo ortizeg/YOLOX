@@ -66,6 +66,10 @@ def run_set(exp, spec, init_sd, batches, iters, warmup, sizes, check):
         from torch import _dynamo
         _dynamo.config.cache_size_limit = max(_dynamo.config.cache_size_limit, 32)
         model.backbone.compile(dynamic=False)
+    if perf.on("cuda_graphs"):
+        from yolox.utils import cuda_graphs
+        cuda_graphs.capture(model, sorted({(t, t) for t in sizes}), batches[0][0].shape[0], torch.float16, cl,
+                            torch.float16)
     scaler = torch.amp.GradScaler("cuda")
     losses, times = [], []
     for i in range(warmup + iters):
@@ -79,7 +83,7 @@ def run_set(exp, spec, init_sd, batches, iters, warmup, sizes, check):
             inps = inps.contiguous(memory_format=torch.channels_last)
         torch.cuda.synchronize()
         t0 = time.perf_counter()
-        with torch.amp.autocast("cuda", dtype=torch.float16):
+        with torch.amp.autocast("cuda", dtype=torch.float16, cache_enabled=not perf.on("cuda_graphs")):
             out = model(inps, targets)
         loss = out["total_loss"]
         opt.zero_grad()
@@ -92,6 +96,8 @@ def run_set(exp, spec, init_sd, batches, iters, warmup, sizes, check):
             times.append(time.perf_counter() - t0)
         losses.append(float(loss))
     final = {k: v.detach().float().cpu() for k, v in ema.ema.state_dict().items()}
+    if perf.on("cuda_graphs"):
+        cuda_graphs.release(model)
     return losses, times, final
 
 

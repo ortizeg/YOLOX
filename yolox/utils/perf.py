@@ -55,6 +55,7 @@ TIER = {
     # N6: no host sync in a training step (logging steps aside)
     "iou_nosync": "B",  # IOUloss areas as w*h, not torch.prod (whose backward checks for zeros on the host)
     "dense_loss": "B",  # SimOTA targets for every anchor + positive mask: masked dense losses, no nonzero() (needs simota_batch)
+    "cuda_graphs": "B",  # N7: backbone + neck + head convs captured per training size and replayed (needs the N6 flags)
     "log_onesync": "A",  # the logging step reads every loss meter in one device-to-host copy, not one .item() each
 }
 
