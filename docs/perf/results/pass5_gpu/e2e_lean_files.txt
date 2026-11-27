@@ -1,0 +1,17 @@
+total 1683856
+drwxr-xr-x 3 root root      4096 14:17:04 .
+drwxr-xr-x 4 root root        38 14:15:38 ..
+-rw-r--r-- 2 root root 101501770 14:17:04 best_ckpt.pth
+-rw-r--r-- 1 root root 101501770 14:16:24 epoch_10_ckpt.pth
+-rw-r--r-- 1 root root 101501770 14:16:44 epoch_15_ckpt.pth
+-rw-r--r-- 1 root root 101501770 14:16:51 epoch_17_ckpt.pth
+-rw-r--r-- 1 root root 101501770 14:16:56 epoch_18_ckpt.pth
+-rw-r--r-- 1 root root 101501770 14:16:59 epoch_19_ckpt.pth
+-rw-r--r-- 2 root root 101501770 14:17:04 epoch_20_ckpt.pth
+-rw-r--r-- 1 root root 101501160 14:16:04 epoch_5_ckpt.pth
+-rw-r--r-- 2 root root 304027540 14:17:04 last_epoch_ckpt.pth
+-rw-r--r-- 1 root root 304038426 14:16:48 last_mosaic_epoch_ckpt.pth
+-rw-r--r-- 2 root root 304027540 14:17:04 latest_ckpt.pth
+drwxr-xr-x 2 root root        65 14:15:39 tensorboard
+-rw-r--r-- 1 root root    137880 14:17:04 train_log.txt
+1.3G	YOLOX_outputs/e2e_lean

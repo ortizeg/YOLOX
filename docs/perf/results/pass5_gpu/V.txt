@@ -1,0 +1,1 @@
+anno_cache,async_ckpt,channels_last,class_map,cls_cost_algebra,cv_flip,ddp_bucket_view,ema_foreach,eval_amp,eval_persistent,fast_anno,focus_conv,fused_optim,hsv_lut,hwc_transport,int_indices,int_mixup,no_empty_cache,nondeterministic,preproc_nopad,resize_nosync,simota_batch,simota_nosync,skip_noop_resize,sppf,uint8_transport

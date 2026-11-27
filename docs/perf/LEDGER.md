@@ -351,3 +351,29 @@ rented 14 min (about $1).
 
 **Decision update:** the preferred Objects365 node is 8× RTX 4090, about $35 for 20 epochs, if the max_labels 300 memory
 check passes. 8× L40S (48 GB) is the fallback, at about $81.
+
+## Pass 5: five small host-side fixes (2026-11-27; PRs #12–#16; `results/pass5_gpu/`, `tools/perf/box_pass5.sh`)
+
+Measured on 2× RTX 4090 (torch 2.5.1+cu124, 64 vCPUs). V = `perf all` minus these five flags and `compile`. Step
+times are `bench_step.py` medians over 220 iterations after 110 warm-up, E1 basketball recipe at 800 ±5×32, batch 16.
+
+| PR | flag | tier | GPU tests | equivalence vs V (60 steps) | measured |
+|---|---|---|---|---|---|
+| #13 | `worker_cv2_threads` | A | (needs 2+ GPUs; run below) | n/a | 2-GPU run, 8 workers/GPU: threads per loader worker **63 → 3**, CPU per worker about 135% → 55%, 216 → 222 img/s (+3%; this box is GPU-bound) |
+| #12 | `head_nosync` | A | all pass (one test fixed) | losses and weights identical | 112.6 → 111.7 ms (−0.9%) |
+| #16 | `fused_optim_amp` | B | all pass, incl. no host sync in `scaler.step` and a 60-step inf-skip regression | AdamW identical (V already fuses AdamW); SGD loss within 0.34% (orig vs V: 0.39%) | AdamW 112.6 → 112.2 ms; SGD 113.5 → 112.2 ms (−1.1%) |
+| #14 | `host_label_counts` | A | all pass (one test fixed) | identical | 112.6 → 112.8 ms (noise) |
+| #15 | `lean_ckpt` | A | n/a | training unchanged; resume from `latest` works | 20 basketball epochs with `save_interval 5`: **103 → 90 s (−13%)**; run folder 3.2 → 1.3 GB; best/epoch_N 304 → 101 MB |
+| all five | | | | AdamW identical | AdamW 110.8 ms (−1.6%); SGD 111.4 ms (−1.9%) |
+
+- **Why the step gains are small here:** the 1× 4090 basketball step is GPU-bound. Also, `bench_step` synchronises at
+  every step boundary, so it can't show the host running ahead into the next step, which is the point of removing syncs.
+  The target case is the 8-GPU Objects365 step (35–40% GPU utilisation on 8× H200); measure it there.
+- **Bug found and fixed in #16:** torch 2.5.1 fused SGD creates momentum buffers with `torch.empty_like` and relies on
+  the kernel's first step to fill them. When GradScaler skips that step (inf/nan at the initial 65536 scale), the
+  uninitialised buffers are kept and the next step turns the weights NaN (seen within 3 steps). The fix pre-creates zero
+  buffers before each step; SGD with dampening ≠ 0 stays unfused.
+- **Multi-GPU hang reproduced:** both 2-GPU runs (with V only, none of these five flags) hung after their final
+  evaluation. Rank 0 waited on a 1-element all-reduce until the NCCL watchdog killed it 30 min later
+  (`WorkNCCL(SeqNum=3010, OpType=ALLREDUCE, NumelIn=1 ...)`). This looks like the H200 epoch-4 hang. It reproduces in about
+  2 min on 2 GPUs, so it can be bisected over V's flags cheaply. Until then, keep in-training eval off for multi-GPU runs.
