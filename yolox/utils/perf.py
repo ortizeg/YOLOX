@@ -46,6 +46,8 @@ TIER = {
     "resize_nosync": "A",  # P7: multiscale size without a CUDA tensor/.item() (gloo broadcast, no NCCL barrier)
     # pass 4 (tier C: changes the training data distribution, needs accuracy runs)
     "decode_reuse": "C",  # Q3: mosaic/mixup partners drawn from a per-worker pool of recently decoded images
+    # pass 5
+    "fused_optim_amp": "B",  # N3+N4: rebuild SGD/Adam/AdamW with fused=True in the constructor (sync-free GradScaler step)
 }
 
 _FLAGS: set[str] = set()
