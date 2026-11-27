@@ -46,6 +46,8 @@ TIER = {
     "resize_nosync": "A",  # P7: multiscale size without a CUDA tensor/.item() (gloo broadcast, no NCCL barrier)
     # pass 4 (tier C: changes the training data distribution, needs accuracy runs)
     "decode_reuse": "C",  # Q3: mosaic/mixup partners drawn from a per-worker pool of recently decoded images
+    # pass 5
+    "head_nosync": "A",  # N2: head grids/stride rows built and cached on the device (per level and size), no H2D copies
 }
 
 _FLAGS: set[str] = set()
