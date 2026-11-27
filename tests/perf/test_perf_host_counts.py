@@ -27,9 +27,12 @@ def random_targets(seed, B=6, M=50):
         n = int(torch.randint(0, M + 1, (1,), generator=g)) if b else 0  # image 0 empty
         t[b, :n, 0] = torch.randint(0, 5, (n,), generator=g).float()
         t[b, :n, 1:] = torch.rand(n, 4, generator=g) * 600 + 1
-    t[1, 2] = 0  # an all-zero row between valid rows
-    t[2, :, 0] = 0  # class 0 everywhere: those rows still count through the box
-    t[3, -1] = 0  # padding row at the end of a full image
+    if B > 1:
+        t[1, 2] = 0  # an all-zero row between valid rows
+    if B > 2:
+        t[2, :, 0] = 0  # class 0 everywhere: those rows still count through the box
+    if B > 3:
+        t[3, -1] = 0  # padding row at the end of a full image
     return t
 
 
@@ -47,6 +50,15 @@ def test_counts_match_rule(seed):
             u[..., 1::2] = u[..., 1::2] * scale
             u[..., 2::2] = u[..., 2::2] * scale
             assert device_rule(u).tolist() == host
+
+
+@pytest.mark.parametrize("B", [1, 2, 4, 5, 6])
+def test_counts_match_rule_batch_sizes(B):
+    """The helper is valid for every batch size the prefetcher test uses (and smaller)."""
+    t = random_targets(B, B=B)
+    assert t.shape[0] == B
+    assert perf.label_counts(t) == device_rule(t).tolist()
+    assert perf.label_counts(t.pin_memory() if torch.cuda.is_available() else t) == device_rule(t).tolist()
 
 
 def test_counts_refuse_negative_entries():
