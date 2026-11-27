@@ -4,6 +4,20 @@ Branch `perf/train-speed` (base `8d71c7f` = published training code `64c55e2` + 
 opt-in flag (`yolox/utils/perf.py`); with `perf ""` (the default) every code path is the original YOLOX one.
 Enable with the exp opt `perf <comma list>` or `perf all`.
 
+**Where the evidence lives.**
+- **This repo:**
+  - code and flags in `yolox/utils/perf.py`
+  - equivalence tests in `tests/perf/`
+  - benchmark and profiling tools in `tools/perf/`
+  - raw benchmark outputs and training logs in `docs/perf/results/`
+  - Objects365/COCO configs and scripts in `exps/perf/` and `tools/perf/o365_*.sh`
+- **ortizeg/foundation-finetune:**
+  - 3-seed accuracy runs: `results/yolox/{perf,q95,norot,ema998,ema999,gref,gfull,greuse,gb32}_e1_s*`
+  - bootstrap outputs: `results/yolox/bootstrap_*.json`, made by `models/rtmdet/bootstrap.py`
+  - launch scripts as run: `vast/yolox_perf/`
+  - Objects365 run log: `results/yolox/o365_m_e20/`
+- Sections are in the order the work happened. Later sections supersede "not done yet" notes in earlier ones.
+
 ## Claim
 
 On the tuned YOLOX-M basketball recipe (E1: train 800 ±5×32, batch 16, fp16, AdamW, EMA), one RTX 4090:
@@ -24,7 +38,7 @@ Accuracy is unchanged (3 seeds each, val selects the checkpoint, test predicted 
 | speed-ups (`perf_e1_s0-2`) | 0.6755 ± 0.0021 | 0.6890 ± 0.0051 | 0.805 |
 
 Clip-clustered paired bootstrap, test: perf − original **−0.3 pt [−1.2, +0.4]**, ahead on 1 of 3 clips: a tie
-(`results/bootstrap_perf_vs_e1.json`). The flag set used for every number above (the "validated set"):
+(foundation-finetune `results/yolox/bootstrap_perf_vs_e1.json`). The flag set used for every number above (the "validated set"):
 `nondeterministic,no_empty_cache,simota_batch,cls_cost_algebra,ema_foreach,fused_optim,sppf,focus_conv,channels_last,uint8_transport,skip_noop_resize,hsv_lut,int_mixup,class_map`.
 
 ## Equivalence tests
@@ -80,8 +94,10 @@ host-device syncs and a `torch.cuda.empty_cache()` each time.
 - **cls_cost_algebra**: ~0 at 5 classes as expected; it removes the `[gt × anchor × class]` tensor, so its value
   is at 80 / 365 classes (COCO / Objects365), not measured here.
 
-## Not done yet
+## Not done yet (as of pass 1; see later sections)
 
+- Since done: multi-GPU and Objects365 scale (8× L40S section), the first tier-C item (`decode_reuse`, pass 4), and
+  bigger batch (failed the pass-4 gate). Still open:
 - Tier-C items (combined mosaic warp, GPU augmentation, progressive resizing, bigger batch) and D6 (turbojpeg):
   they change results and need their own accuracy runs.
 - Multi-GPU (DDP) and Objects365-scale data: untested. The data path ran at 106 → 128 img/s with 8 workers on
@@ -254,3 +270,52 @@ Rules for the COCO screening runs:
   that would show from scratch.
 - Re-pretrain once with the final loss before a release, if the COCO gain is near the noise.
 - The final decision is on basketball test (3 seeds, clip-clustered CI). COCO is the intermediate gate.
+
+## Why the H200 GPUs sit at 35–40% (2026-11-27, live Objects365 run, batch 16/GPU)
+
+- **Not data-starved.** data_time is 0.001 s on every logged step, and 68% of the 192 CPU cores are idle. YOLOX's
+  data_time includes the wait for the next batch from the loader, so the GPU never waits on data.
+- **Per-step overhead.** Each ~80 ms step is too small for an H200. Python dispatch, many small kernels, the 2 host
+  syncs left in SimOTA, the optimizer, EMA and the gradient all-reduce dominate. Evidence: batch 32/GPU gives 1.28×
+  more img/s on the same GPUs, and 8× L40S matches 8× H200 at batch 16.
+- **Worker threads.** Each loader worker uses 250–300% CPU despite `OMP_NUM_THREADS=1`, probably OpenCV's own
+  thread pool. Next cheap test (tier A): `cv2.setNumThreads(0)` in `worker_init_fn`.
+- **Levers, in order:** bigger batch per GPU at the same total batch (fewer GPUs, so the recipe is unchanged);
+  CUDA graphs or `torch.compile(mode="reduce-overhead")`, which need fixed shapes per multiscale size; and the
+  thread fix above.
+
+## Other data loaders reviewed (2026-11-27, read only, nothing run)
+
+- **ortizeg/object-detection-training** (Apache-2.0; no Ultralytics-derived data code): slower per core.
+  - PIL decode and resize; a pandas filter + `iterrows` per sample; deepcopy of cached images; float32 transport.
+  - Its mosaic partner cache (40 per worker, random eviction, credited to RTMDet) is the same idea as
+    `decode_reuse`. Random eviction instead of FIFO is the one thing to borrow. RTMDet reports it accuracy-neutral;
+    no speed gain.
+- **Deci-AI super-gradients** (Apache-2.0): simpler and more CPU-hungry.
+  - Every partner is decoded fresh; HSV goes BGR→HSV→BGR; float32 is cast in the worker and again in collate.
+  - No image cache, no GPU augmentation, no Objects365 recipe.
+  - Two ideas: roll the mosaic/mixup probability before loading partners (no gain at prob 1.0); resize on load,
+    so the reuse pool holds 640-scale images (a few % of CPU, estimate).
+- **Not adopted:** reduced-size JPEG decode (no gain at Objects365 sizes, see the pass-2 cache table) and
+  re-encoded JPEG caches (lossy; little size saving for Objects365).
+
+## Considered: super-gradients `YoloXFastDetectionLoss` (2026-11-27) — not adopted, revisit only on evidence
+
+Source: `src/super_gradients/training/losses/yolox_loss.py` (Apache-2.0).
+- **What it is:** SimOTA vectorised over sparse (gt, anchor) candidate pairs for the whole batch. Their recipe
+  reports YOLOX-S 41.7 h → 18.4 h (2.27×).
+- **Why not now:**
+  1. `simota_batch` + `cls_cost_algebra` + `simota_nosync` already removed the same bottleneck: SimOTA + loss went
+     113 → 19 ms (16% of the step). Even a free loss can't beat that, and on the H200 the step is overhead-bound.
+     Their matcher uses `nonzero`, `unique` and sorts, which also synchronise with the host.
+  2. It isn't equivalent, by its own docstring. Dynamic k and candidates are taken per GT only, and a
+     `dynamic_ks_bias=1.1` compensates. Ours gives identical targets on 16/16 real batches; theirs would be tier C.
+  3. Assignment changes haven't helped here: OTA, TAL, QFL and IoU objectness all failed to beat E1 on basketball
+     test (foundation-finetune gap study).
+- **Worth keeping in mind:**
+  - The sparse candidate layout uses less memory than our padded `[B × G_max × A]` tensors at 300 labels per
+    mosaic. Write our own sparse version of the exact algorithm if memory limits batch 64.
+  - `obj_loss_fix` (objectness normalised by the number of anchors) is a loss change. Under the decision below it
+    is screened by a COCO fine-tune from the Objects365 checkpoint.
+- **Revisit if:** a profile of the multi-GPU step shows loss/assignment above about 25%. Then run a 30-min A/B of
+  their matcher vs ours on real Objects365 batches (~$1 on a 4090) before any accuracy run.

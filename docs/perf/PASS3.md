@@ -1,5 +1,7 @@
 # Pass 3: further training speed-ups (2026-11-26)
 
+> GPU results for this pass are in `LEDGER.md` ("Pass 3 on GPU"); the estimates below were written before them.
+
 Independent review of the training path, done after passes 1–2. Seven new opt-in flags; `perf ""` is still the
 original code everywhere. CPU suite: 284 passed (29 new tests in `tests/perf/test_perf_pass3.py`). CPU numbers are
 from Apple silicon; GPU effects are estimates until benchmarked on the box.
