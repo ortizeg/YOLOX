@@ -135,8 +135,8 @@ def test_head_paths_no_host_sync_cuda():
             head._device_grid(("train", 1), 33, 17, 16, xin[0].dtype, xin[0].device)  # cold build: no sync either
             cost.new_full((), float("inf"))
             head.eval()
-            with torch.no_grad():
-                head(xin)  # inference decode on the device
+            with torch.no_grad(), torch.autocast("cuda", dtype=torch.float16):
+                head(xin)  # fp16 inputs + fp32 weights under autocast, as in training; decode on the device
             head.train()
     finally:
         torch.cuda.set_sync_debug_mode("default")
