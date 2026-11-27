@@ -21,7 +21,7 @@ if [ "$SYNC" = gcs ]; then
     done ) & SYNCER=$!
 fi
 echo "train start $(date -u +%FT%TZ) run $RUN gpus $NG bpg $BPG resume ${RESUME[*]:-none}" >> /workspace/finish.log
-python3 -m yolox.tools.train -f $EXP -expn $RUN -d $NG -b $(( BPG * NG )) --fp16 -o "${RESUME[@]}" --logger tensorboard \
+python3 -m yolox.tools.train -f $EXP -expn $RUN -d $NG -b $(( BPG * NG )) --fp16 "${RESUME[@]}" --logger tensorboard \
   data_num_workers $WORKERS $EXTRA perf "$PERF" > /workspace/o365_train_$(date +%s).log 2>&1
 RC=$?
 [ -n "${SYNCER:-}" ] && kill $SYNCER
