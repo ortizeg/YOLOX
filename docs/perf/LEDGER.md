@@ -416,3 +416,38 @@ behind a backward sync):
 - Tooling: `YOLOX_AUDIT_SPAN_EPOCHS=1` lets audit runs cross epoch boundaries (basketball is 15 iterations/epoch, which
   had ended every audit before its warm-up).
 - Verdict: adopt all three into the default set. Next: N7.
+
+## N7: CUDA graphs over backbone + neck + head convs (2026-11-27; 2× RTX 4090; `tools/perf/box_n7.sh`)
+
+`cuda_graphs` (`yolox/utils/cuda_graphs.py`): the trunk (backbone, neck, the head's per-level convs and predictions)
+is captured forward + backward per training size with `torch.cuda.make_graphed_callables` and replayed; decode,
+SimOTA and the losses stay eager. Needs the N6 flags (no sync in the trunk). The graphs live in a registry outside
+the model, so EMA's deepcopy, checkpoints and eval only ever see the plain eager model; an uncaptured shape falls back
+to eager.
+
+**Memory.** The first version (one `make_graphed_callables` call per size) ran out of memory at 11 sizes × batch 16:
+each capture's private-pool memory stays committed, and the next size's built-in eager warm-up then needs a second
+copy of the activations. Fix: warm up every size eagerly first (also does the cuDNN autotuning), release that cache,
+then capture all sizes largest-first with no further warm-up into one shared pool. 11 sizes (640–960) at batch 16:
+**25 s, +13.7 GiB**, about what the 960 graph alone needs. (8 GPU-hours of training per extra minute of capture is
+irrelevant; on a 24 GB card the rest of the step must fit in the remaining ~10 GB.)
+
+| check | V (= N6 set) | V + `cuda_graphs` |
+|---|---:|---:|
+| tests (`tests/perf`, GPU) | | 190 pass, incl. graphed training = eager (fp32 and fp16 + channels_last, ± L1), capture leaves state unchanged, EMA copy / eval / other shapes take the eager path |
+| 60-step equivalence (`bench_step --check`, deterministic) | | **bit-identical** losses and weights (tier B on paper, A in practice) |
+| 1-GPU `bench_step` (syncs every step, GPU-bound) | 107.7 ms | 107.3 ms |
+| 2-GPU E1 step, median compute (iteration − data wait), two orders | 128 / 124 ms | **95 / 89 ms (−26%)** |
+| 2-GPU light step (640 fixed, 8/GPU), median compute | 98 / 97 ms | **50 / 46 ms (−50%)** |
+| 20-epoch basketball val AP, best epoch, seeds 0/1/2 | 61.38 / 62.52 / 60.86 (61.59) | 61.49 / 61.60 / 61.98 (61.69) |
+
+- **This box became data-bound with graphs on.** Data wait per step went from ~2 ms to 30–190 ms (2 ranks × 8
+  workers on 32 effective vCPUs, mosaic + mixup at 800 px, host load average 6–11 from other tenants), so wall-clock
+  iteration time here is set by the loader and is noisy (E1 graphed 197 / 282 ms vs 171 / 180 ms). The compute numbers
+  above exclude the data wait. On the 8-GPU Objects365 box (192 vCPUs, data wait 1 ms and 68% idle CPU at 126 ms/step)
+  the loader has ~3× headroom; check `data_time` in the first minutes of the next run, and raise `data_num_workers`
+  if it climbs.
+- **Profile (fixed 800, rank 0):** the CPU now waits inside graph replay (`trunk_graph` 95.7 ms CPU vs 39.3 ms CUDA):
+  the GPU queue is full, i.e. the step is GPU-bound again. So graphing the optimizer step and EMA as well (the planned
+  follow-up) would gain ~nothing; dropped.
+- **Verdict:** adopt. Equivalent, accuracy tie, 26–50% less compute per step where launch overhead mattered.
