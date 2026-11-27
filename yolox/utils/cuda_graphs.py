@@ -75,18 +75,40 @@ def capture(model, sizes, batch, dtype, channels_last, amp_dtype=None, warmup=3)
     dev = next(model.parameters()).device
     bn = {k: v.detach().clone() for k, v in model.state_dict().items()
           if k.endswith(("running_mean", "running_var", "num_batches_tracked"))}
-    pool = torch.cuda.graph_pool_handle()
     graphs = {}
     t0 = time.time()
     mem0 = torch.cuda.memory_reserved(dev)
-    for h, w in sizes:
+    sizes = sorted(sizes, key=lambda hw: hw[0] * hw[1], reverse=True)  # largest first: later captures fit its blocks
+    params = [p for p in model.parameters() if p.requires_grad]
+
+    def sample(h, w):
         x = torch.randn(batch, 3, h, w, device=dev).to(dtype)
-        if channels_last:
-            x = x.contiguous(memory_format=torch.channels_last)
-        trunk = _Trunk(model)
-        with torch.amp.autocast("cuda", enabled=amp_dtype is not None, dtype=amp_dtype or torch.float16,
-                                cache_enabled=False):
-            trunk = torch.cuda.make_graphed_callables(trunk, (x,), num_warmup_iters=warmup, pool=pool)
+        return x.contiguous(memory_format=torch.channels_last) if channels_last else x
+
+    autocast = dict(device_type="cuda", enabled=amp_dtype is not None, dtype=amp_dtype or torch.float16,
+                    cache_enabled=False)
+    # 1) eager warm-up of every size (cuDNN autotuning, lazy library init) on a side stream, as make_graphed_callables
+    #    would do per capture; done for all sizes first because each capture's private-pool memory stays committed,
+    #    and an eager warm-up after it would need a second copy of the activations
+    side = torch.cuda.Stream(dev)
+    side.wait_stream(torch.cuda.current_stream(dev))
+    with torch.cuda.stream(side):
+        for h, w in sizes:
+            x = sample(h, w)
+            for _ in range(warmup):
+                with torch.amp.autocast(**autocast):
+                    outs = _Trunk(model)(x)
+                torch.autograd.grad(outs, params, grad_outputs=[torch.ones_like(o) for o in outs])
+                del outs
+    torch.cuda.current_stream(dev).wait_stream(side)
+    torch.cuda.synchronize(dev)
+    torch.cuda.empty_cache()  # the warm-up's cached blocks (normal pool), so the graph pool can grow into them
+    # 2) capture, all sharing one private pool
+    pool = torch.cuda.graph_pool_handle()
+    for h, w in sizes:
+        x = sample(h, w)
+        with torch.amp.autocast(**autocast):
+            trunk = torch.cuda.make_graphed_callables(_Trunk(model), (x,), num_warmup_iters=0, pool=pool)
         graphs[(tuple(x.shape), x.dtype, channels_last)] = trunk
     torch.cuda.synchronize(dev)
     with torch.no_grad():  # undo the warm-up passes' BatchNorm statistic updates (in place: storage unchanged)

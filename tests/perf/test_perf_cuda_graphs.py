@@ -55,6 +55,7 @@ def train(model, spec, data, amp, channels_last, capture):
             if channels_last:
                 x = x.contiguous(memory_format=torch.channels_last)
             model.head.host_label_counts = list(counts)
+            assert (cuda_graphs.lookup(model, x) is not None) == capture  # the graph path really runs
             with torch.autocast("cuda", enabled=amp, dtype=torch.float16, cache_enabled="cuda_graphs" not in spec):
                 out = model(x, labels)
             opt.zero_grad(set_to_none=True)
