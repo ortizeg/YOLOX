@@ -506,3 +506,28 @@ remaining ~10 GB.
   the GPU queue is full, i.e. the step is GPU-bound again. So graphing the optimizer step and EMA as well (the planned
   follow-up) would gain ~nothing; dropped.
 - **Verdict:** adopt. Equivalent, accuracy tie, 26–50% less compute per step where launch overhead mattered.
+
+## torch 2.14.1 + CUDA 13.0 + cuDNN 9.24 vs torch 2.5.1 + CUDA 12.4 + cuDNN 9.1 (2026-11-27; same 2× RTX 4090 box)
+
+`tools/perf/box_torch_upgrade.sh`: the newest release in a separate venv, same code and data. Raw:
+`foundation-finetune/results/yolox/torch_upgrade/`.
+
+| check | 2.5.1 | 2.14.1 |
+|---|---:|---:|
+| N6/N7/fused-optimizer tests | pass | pass (51), after the fix below |
+| 1-GPU `bench_step`, E1, V (median) | 106.7 ms | 105.7 ms (−1%) |
+| 1-GPU `bench_step`, V + `cuda_graphs` | 106.5 ms | **OOM** at capture |
+| 2-GPU light step (640, 8/GPU), V, median compute | 98 / 97 ms | 105.5 ms |
+| 2-GPU light step, V + `cuda_graphs` | 50 / 46 ms | 53.5 ms |
+| 2-GPU E1, V, median compute | 128 / 124 ms | 134 ms |
+| 2-GPU E1, V + `cuda_graphs` | 95 / 89 ms | **OOM** (12.9 GiB in graph pools + the eager step > 24 GB) |
+
+- **No speed gain** (the Nov 26 2.7.1 test said the same). The 2-GPU numbers are single runs on a noisy box, so read
+  them as "not faster", not as a regression.
+- **`cuda_graphs` at 11 sizes no longer fits a 24 GB card on 2.14**: the shared-pool capture that takes 13.7 GiB on
+  2.5.1 leaves too little for the eager part (bench_step: 21.4 GiB in private pools). Not investigated; a reason not
+  to upgrade until it is.
+- **Bug found and fixed:** `fused_optim_amp` rebuilt AdamW from `optimizer.defaults`; torch ≥ 2.10 keeps
+  `decoupled_weight_decay` there, which `AdamW.__init__` rejects. The rebuild now passes only the constructor's
+  arguments (`yolox/utils/fused_optim.py`).
+- **Verdict: stay on torch 2.5.1 + cu124.**

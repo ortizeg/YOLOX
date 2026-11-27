@@ -22,9 +22,9 @@ for PY in python3 $NEW/bin/python; do
   $PY -c "import torch,cv2;print(torch.__version__,torch.version.cuda,torch.backends.cudnn.version(),cv2.__version__)"
 done > $O/env.txt 2>&1
 # new stack: the N6/N7 tests first (does the code run unchanged?)
-$NEW/bin/python -m pytest tests/perf/test_perf_n6_syncs.py tests/perf/test_perf_cuda_graphs.py -q -p no:cacheprovider > $O/pytest_new.txt 2>&1
+$NEW/bin/python -m pytest tests/perf/test_perf_n6_syncs.py tests/perf/test_perf_cuda_graphs.py tests/perf/test_perf_fused_amp.py -q -p no:cacheprovider > $O/pytest_new.txt 2>&1
 
-for PY in python3 $NEW/bin/python; do T=old; [ $PY = python3 ] || T=new
+for PY in ${STACKS:-python3 $NEW/bin/python}; do T=old; [ $PY = python3 ] || T=new
   $PY tools/perf/bench_step.py -f $EXP -c /workspace/yolox_m.pth --warmup 110 --iters 220 --out $O/step_1gpu_$T.json \
     --sets "$V" "$G" "$V" "$G" -- "${E1[@]}" > $O/step_1gpu_$T.log 2>&1
 done
