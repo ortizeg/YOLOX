@@ -10,8 +10,8 @@ log() { echo "SUPERVISOR $* $(date -u +%FT%TZ)" >> /workspace/finish.log; }
 last_exit() { awk '/train start/{e="none"} /train exit/{e=$3} END{print (e=="" ? "none" : e)}' /workspace/finish.log; }
 running() { pgrep -f "[y]olox.tools.train" >/dev/null; }
 wait_done() { while running; do sleep 60; done; sleep 30; while running; do sleep 60; done; }
-launch_o365() { env EXTRA="eval_interval 1000" RUN=o365_m_e20 BPG=16 WORKERS=16 SYNC=none PERF=$F bash /workspace/YOLOX/tools/perf/o365_train.sh >> /workspace/o365_run.log 2>&1 & }
-launch_coco() { env EXTRA="eval_interval 1000" RUN=coco_ft_o365_e80 EXP=exps/perf/yolox_m_coco_ft_o365.py INIT=/workspace/o365_best.pth BPG=16 WORKERS=16 \
+launch_o365() { env EXTRA="eval_interval 1000 no_aug_eval_interval 1000" RUN=o365_m_e20 BPG=16 WORKERS=16 SYNC=none PERF=$F bash /workspace/YOLOX/tools/perf/o365_train.sh >> /workspace/o365_run.log 2>&1 & }
+launch_coco() { env EXTRA="eval_interval 1000 no_aug_eval_interval 1000" RUN=coco_ft_o365_e80 EXP=exps/perf/yolox_m_coco_ft_o365.py INIT=/workspace/o365_best.pth BPG=16 WORKERS=16 \
   SYNC=none PERF=$F bash /workspace/YOLOX/tools/perf/o365_train.sh >> /workspace/coco_run.log 2>&1 & }
 
 offline_eval() {  # exp ckpt name -> /workspace/eval_<name>.log, single GPU 0 (no DDP, original eval path)

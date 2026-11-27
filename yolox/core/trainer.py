@@ -286,7 +286,8 @@ class Trainer:
                 self.model.module.head.use_l1 = True
             else:
                 self.model.head.use_l1 = True
-            self.exp.eval_interval = 1
+            # exp.no_aug_eval_interval (default 1, the original behaviour) lets multi-GPU runs keep eval off here
+            self.exp.eval_interval = getattr(self.exp, "no_aug_eval_interval", 1)
             if not self.no_aug:
                 self.save_ckpt(ckpt_name="last_mosaic_epoch")
 
