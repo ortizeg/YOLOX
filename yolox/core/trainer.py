@@ -13,7 +13,8 @@ from torch.utils.tensorboard import SummaryWriter
 
 from yolox.data import DataPrefetcher
 from yolox.exp import Exp
-from yolox.utils import perf
+from yolox.utils import perf, step_audit
+from yolox.utils.step_audit import stage
 from yolox.utils import (
     MeterBuffer,
     MlflowLogger,
@@ -46,6 +47,12 @@ def _to_cpu(obj):
     if isinstance(obj, (list, tuple)):
         return type(obj)(_to_cpu(v) for v in obj)
     return obj
+
+
+def _audit_no_ckpt(trainer):
+    """YOLOX_AUDIT_ITERS runs never write checkpoints."""
+    a = getattr(trainer, "audit", None)
+    return a is not None and bool(a.iters)
 
 
 def to_nchw(inps, dtype):
@@ -98,6 +105,9 @@ class Trainer:
             filename="train_log.txt",
             mode="a",
         )
+        # YOLOX_AUDIT_ITERS / YOLOX_SYNC_AUDIT / YOLOX_PROFILE / YOLOX_MEM_CAP_GB; None (every hook skipped) when unset
+        self.audit = step_audit.from_env(self.rank, self.file_name)
+        self._audit_stop = False
 
     def train(self):
         self.before_train()
@@ -105,6 +115,7 @@ class Trainer:
             self.train_in_epoch()
         except Exception as e:
             logger.error("Exception in training: ", e)
+            self._train_exc = e
             raise
         finally:
             self.after_train()
@@ -113,52 +124,70 @@ class Trainer:
         for self.epoch in range(self.start_epoch, self.max_epoch):
             self.before_epoch()
             self.train_in_iter()
+            if self._audit_stop:  # YOLOX_AUDIT_ITERS: no checkpoint, no evaluation
+                logger.info(f"step audit: stopping after {self.audit.count} iterations")
+                break
             self.after_epoch()
 
     def train_in_iter(self):
+        audit = self.audit
         for self.iter in range(self.max_iter):
+            if audit is not None:
+                audit.iter_start()
             self.before_iter()
             self.train_one_iter()
             self.after_iter()
+            if audit is not None and audit.iter_end(self.iter + 1 == self.max_iter):
+                self._audit_stop = True
+                break
 
     def train_one_iter(self):
         iter_start_time = time.time()
 
-        inps, targets = self.prefetcher.next()
-        if perf.on("host_label_counts"):
-            perf.set_label_counts(self.model, getattr(self.prefetcher, "label_counts", None))
-        inps = to_nchw(inps, self.data_type)
-        targets = targets.to(self.data_type)
-        targets.requires_grad = False
-        inps, targets = self.exp.preprocess(inps, targets, self.input_size)
-        if self.channels_last:
-            inps = inps.contiguous(memory_format=torch.channels_last)
+        # stage(): profiler ranges / sync-audit attribution, a shared no-op context unless YOLOX_PROFILE or
+        # YOLOX_SYNC_AUDIT is set on this rank (yolox/utils/step_audit.py)
+        with stage("data_fetch"):
+            inps, targets = self.prefetcher.next()
+            if perf.on("host_label_counts"):
+                perf.set_label_counts(self.model, getattr(self.prefetcher, "label_counts", None))
+        with stage("preprocess"):
+            inps = to_nchw(inps, self.data_type)
+            targets = targets.to(self.data_type)
+            targets.requires_grad = False
+            inps, targets = self.exp.preprocess(inps, targets, self.input_size)
+            if self.channels_last:
+                inps = inps.contiguous(memory_format=torch.channels_last)
         data_end_time = time.time()
 
-        with torch.amp.autocast("cuda", enabled=self.amp_training, dtype=self.amp_dtype):
+        with stage("forward"), torch.amp.autocast("cuda", enabled=self.amp_training, dtype=self.amp_dtype):
             outputs = self.model(inps, targets)
 
         loss = outputs["total_loss"]
 
-        self.optimizer.zero_grad()
-        self.scaler.scale(loss).backward()
-        self.scaler.step(self.optimizer)
-        self.scaler.update()
+        with stage("backward"):
+            self.optimizer.zero_grad()
+            self.scaler.scale(loss).backward()
+        with stage("optimizer_step"):
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
 
         if self.use_model_ema:
-            self.ema_model.update(self.model)
+            with stage("ema"):
+                self.ema_model.update(self.model)
 
-        lr = self.lr_scheduler.update_lr(self.progress_in_iter + 1)
-        for param_group in self.optimizer.param_groups:
-            param_group["lr"] = lr
+        with stage("lr_update"):
+            lr = self.lr_scheduler.update_lr(self.progress_in_iter + 1)
+            for param_group in self.optimizer.param_groups:
+                param_group["lr"] = lr
 
         iter_end_time = time.time()
-        self.meter.update(
-            iter_time=iter_end_time - iter_start_time,
-            data_time=data_end_time - iter_start_time,
-            lr=lr,
-            **outputs,
-        )
+        with stage("meters"):
+            self.meter.update(
+                iter_time=iter_end_time - iter_start_time,
+                data_time=data_end_time - iter_start_time,
+                lr=lr,
+                **outputs,
+            )
 
     def before_train(self):
         logger.info("args: {}".format(self.args))
@@ -166,6 +195,8 @@ class Trainer:
 
         # model related init
         torch.cuda.set_device(self.local_rank)
+        if self.audit is not None:  # YOLOX_MEM_CAP_GB
+            self.audit.on_device_ready(self.local_rank)
         model = self.exp.get_model()
         logger.info(
             "Model Summary: {}".format(get_model_info(model, self.exp.test_size))
@@ -253,6 +284,8 @@ class Trainer:
 
     def after_train(self):
         self._join_ckpt_writer()
+        if getattr(self, "audit", None) is not None:
+            self.audit.finish(getattr(self, "_train_exc", None))
         logger.info(
             "Training of experiment is done and the best AP is {:.2f}".format(self.best_ap * 100)
         )
@@ -311,6 +344,17 @@ class Trainer:
             * log information
             * reset setting of resize
         """
+        with stage("log"):
+            self._log_iter()
+
+        # random resizing
+        if (self.progress_in_iter + 1) % 10 == 0:
+            with stage("multiscale"):
+                self.input_size = self.exp.random_resize(
+                    self.train_loader, self.epoch, self.rank, self.is_distributed
+                )
+
+    def _log_iter(self):
         # log needed information
         if (self.iter + 1) % self.exp.print_interval == 0:
             # TODO check ETA logic
@@ -363,12 +407,6 @@ class Trainer:
                     self.mlflow_logger.on_log(self.args, self.exp, self.epoch+1, logs)
 
             self.meter.clear_meters()
-
-        # random resizing
-        if (self.progress_in_iter + 1) % 10 == 0:
-            self.input_size = self.exp.random_resize(
-                self.train_loader, self.epoch, self.rank, self.is_distributed
-            )
 
     @property
     def progress_in_iter(self):
@@ -487,7 +525,7 @@ class Trainer:
     def save_ckpt_lean(self, full=(), lean=(), update_best_ckpt=False, ap=None):
         """``lean_ckpt`` save: ``full`` names carry the optimizer (resume points: ``latest``, ``last_epoch``),
         ``lean`` names are weights-only (``epoch_N``, ``best``). See ``save_checkpoint_lean``."""
-        if self.rank != 0:
+        if self.rank != 0 or _audit_no_ckpt(self):
             return
         full, lean = list(full), list(lean)
         save_model = self.ema_model.ema if self.use_model_ema else self.model
@@ -524,7 +562,7 @@ class Trainer:
                 )
 
     def save_ckpt(self, ckpt_name, update_best_ckpt=False, ap=None):
-        if self.rank == 0:
+        if self.rank == 0 and not _audit_no_ckpt(self):
             save_model = self.ema_model.ema if self.use_model_ema else self.model
             logger.info("Save weights to {}".format(self.file_name))
             ckpt_state = {

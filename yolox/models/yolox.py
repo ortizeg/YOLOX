@@ -4,6 +4,8 @@
 
 import torch.nn as nn
 
+from yolox.utils.step_audit import stage
+
 from .yolo_head import YOLOXHead
 from .yolo_pafpn import YOLOPAFPN
 
@@ -27,13 +29,15 @@ class YOLOX(nn.Module):
 
     def forward(self, x, targets=None):
         # fpn output content features of [dark3, dark4, dark5]
-        fpn_outs = self.backbone(x)
+        with stage("backbone_neck"):
+            fpn_outs = self.backbone(x)
 
         if self.training:
             assert targets is not None
-            loss, iou_loss, conf_loss, cls_loss, l1_loss, num_fg = self.head(
-                fpn_outs, targets, x
-            )
+            with stage("head"):
+                loss, iou_loss, conf_loss, cls_loss, l1_loss, num_fg = self.head(
+                    fpn_outs, targets, x
+                )
             outputs = {
                 "total_loss": loss,
                 "iou_loss": iou_loss,

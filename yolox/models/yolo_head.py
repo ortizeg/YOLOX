@@ -10,6 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from yolox.utils import bboxes_iou, cxcywh2xyxy, meshgrid, perf, visualize_assign
+from yolox.utils.step_audit import stage
 
 from .losses import IOUloss
 from .network_blocks import BaseConv, DWConv
@@ -336,38 +337,42 @@ class YOLOXHead(nn.Module):
         if self.use_l1:
             origin_preds = torch.cat(origin_preds, 1)
 
-        counts = self.take_host_label_counts(labels.shape[0]) if perf.on("host_label_counts") else None
-        if perf.on("simota_batch"):
-            (cls_targets, reg_targets, obj_targets, fg_masks, l1_targets, num_fg, num_gts) = self.get_targets_batched(
-                labels, nlabel, bbox_preds, obj_preds, cls_preds, expanded_strides, x_shifts, y_shifts, dtype,
-                counts=counts)
-        else:
-            (cls_targets, reg_targets, obj_targets, fg_masks, l1_targets, num_fg, num_gts) = self.get_targets_loop(
-                labels, nlabel, outputs, bbox_preds, obj_preds, cls_preds, expanded_strides, x_shifts, y_shifts,
-                total_num_anchors, dtype, counts=counts)
+        with stage("head_targets"):  # SimOTA assignment
+            counts = self.take_host_label_counts(labels.shape[0]) if perf.on("host_label_counts") else None
+            if perf.on("simota_batch"):
+                (cls_targets, reg_targets, obj_targets, fg_masks, l1_targets, num_fg,
+                 num_gts) = self.get_targets_batched(
+                    labels, nlabel, bbox_preds, obj_preds, cls_preds, expanded_strides, x_shifts, y_shifts, dtype,
+                    counts=counts)
+            else:
+                (cls_targets, reg_targets, obj_targets, fg_masks, l1_targets, num_fg,
+                 num_gts) = self.get_targets_loop(
+                    labels, nlabel, outputs, bbox_preds, obj_preds, cls_preds, expanded_strides, x_shifts, y_shifts,
+                    total_num_anchors, dtype, counts=counts)
 
-        num_fg = max(num_fg, 1)
-        # simota_nosync returns positive indices (int64) instead of a boolean mask; x[idx] == x[mask] row for row
-        loss_iou = (
-            self.iou_loss(bbox_preds.view(-1, 4)[fg_masks], reg_targets)
-        ).sum() / num_fg
-        loss_obj = (
-            self.bcewithlog_loss(obj_preds.view(-1, 1), obj_targets)
-        ).sum() / num_fg
-        loss_cls = (
-            self.bcewithlog_loss(
-                cls_preds.view(-1, self.num_classes)[fg_masks], cls_targets
-            )
-        ).sum() / num_fg
-        if self.use_l1:
-            loss_l1 = (
-                self.l1_loss(origin_preds.view(-1, 4)[fg_masks], l1_targets)
+        with stage("head_loss"):
+            num_fg = max(num_fg, 1)
+            # simota_nosync returns positive indices (int64) instead of a boolean mask; x[idx] == x[mask] row for row
+            loss_iou = (
+                self.iou_loss(bbox_preds.view(-1, 4)[fg_masks], reg_targets)
             ).sum() / num_fg
-        else:
-            loss_l1 = 0.0
+            loss_obj = (
+                self.bcewithlog_loss(obj_preds.view(-1, 1), obj_targets)
+            ).sum() / num_fg
+            loss_cls = (
+                self.bcewithlog_loss(
+                    cls_preds.view(-1, self.num_classes)[fg_masks], cls_targets
+                )
+            ).sum() / num_fg
+            if self.use_l1:
+                loss_l1 = (
+                    self.l1_loss(origin_preds.view(-1, 4)[fg_masks], l1_targets)
+                ).sum() / num_fg
+            else:
+                loss_l1 = 0.0
 
-        reg_weight = 5.0
-        loss = reg_weight * loss_iou + loss_obj + loss_cls + loss_l1
+            reg_weight = 5.0
+            loss = reg_weight * loss_iou + loss_obj + loss_cls + loss_l1
 
         return (
             loss,
