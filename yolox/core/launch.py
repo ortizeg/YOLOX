@@ -14,6 +14,8 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 
 import yolox.utils.dist as comm
+from yolox.utils import perf
+from yolox.utils.setup_env import limit_cv2_threads
 
 __all__ = ["launch"]
 
@@ -109,6 +111,8 @@ def _distributed_worker(
     args,
     timeout=DEFAULT_TIMEOUT,
 ):
+    if perf.on("worker_cv2_threads"):  # configure_module ran only in the launcher, not in this spawned rank
+        limit_cv2_threads()
     assert (
         torch.cuda.is_available()
     ), "cuda is not available. Please check your installation."
