@@ -119,6 +119,27 @@ class Exp(BaseExp):
         # nms threshold
         self.nmsthre = 0.65
 
+    # head assignment / loss options (YOLOXHead attributes of the same name; 0 = upstream behaviour). Integers, not
+    # bools: exp.merge would turn the string "False" into True.
+    tiny_px = 0.0
+    tiny_min_k = 2
+    soft_cls_cost = 0
+    qfl_cls = 0
+    qfl_beta = 2.0
+    HEAD_OPTIONS = ("tiny_px", "tiny_min_k", "soft_cls_cost", "qfl_cls", "qfl_beta")
+
+    def configure_head(self, head):
+        """Copy the head options onto any head that has them (exps build their own heads; the trainer calls this)."""
+        changed = {}
+        for k in self.HEAD_OPTIONS:
+            if hasattr(head, k):
+                v = getattr(self, k)
+                v = bool(v) if isinstance(getattr(head, k), bool) else type(getattr(head, k))(v)
+                if v != getattr(head, k):
+                    changed[k] = v
+                setattr(head, k, v)
+        return changed
+
     def get_model(self):
         from yolox.models import YOLOX, YOLOPAFPN, YOLOXHead
 

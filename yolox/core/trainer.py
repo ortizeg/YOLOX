@@ -225,6 +225,10 @@ class Trainer:
         logger.info(
             "Model Summary: {}".format(get_model_info(model, self.exp.test_size))
         )
+        if hasattr(self.exp, "configure_head"):
+            changed = self.exp.configure_head(model.head)
+            if changed:
+                logger.info(f"head options: {changed}")
         model.to(self.device)
         self.channels_last = perf.on("channels_last")
         if self.channels_last:

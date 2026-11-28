@@ -16,6 +16,23 @@ from .losses import IOUloss
 from .network_blocks import BaseConv, DWConv
 
 
+def soft_class_cost(p, gcls, ious):
+    """Arm E's SimOTA class cost: sum_k BCE(p_k, t_k) * |t_k - p_k|^2 with the soft target t = one_hot(gt class) *
+    IoU (RTMDet-style), for every (image, gt, anchor). p: [B, A, C] probabilities, gcls: [B, G] int64 gt classes,
+    ious: [B, G, A]. Non-gt classes (t = 0) contribute -log(1-p) * p^2, the gt class BCE(p_c, IoU) * (IoU - p_c)^2.
+    Same -100 log clamp as F.binary_cross_entropy. Returns [B, G, A]."""
+    B, A, C = p.shape
+    G = gcls.shape[1]
+    l1m = torch.clamp(torch.log1p(-p), min=-100)  # log(1-p)
+    l0 = torch.clamp(torch.log(p), min=-100)
+    neg = -l1m * p * p  # [B, A, C]
+    idx = gcls[:, :, None, None].expand(B, G, A, 1)
+    pick = lambda x: torch.gather(x[:, None].expand(B, G, A, C), 3, idx)[..., 0]  # noqa: E731
+    pc, l1m_c, l0_c = pick(p), pick(l1m), pick(l0)
+    bce_c = -(ious * l0_c + (1 - ious) * l1m_c)
+    return neg.sum(-1)[:, None, :] + l1m_c * pc * pc + bce_c * (ious - pc) ** 2
+
+
 class YOLOXHead(nn.Module):
     def __init__(
         self,
@@ -128,6 +145,12 @@ class YOLOXHead(nn.Module):
         self.iou_loss = IOUloss(reduction="none")
         self.strides = strides
         self.grids = [torch.zeros(1)] * len(in_channels)
+        # assignment / loss options (off = upstream YOLOX); set from the exp by Exp.configure_head
+        self.tiny_px = 0.0  # C: gts with max(w, h) < tiny_px (input px) get an IoU cost relative to their best
+        self.tiny_min_k = 2  #    candidate and at least tiny_min_k positives
+        self.soft_cls_cost = False  # E: SimOTA class cost against the IoU-scaled target, weighted by |t - p|^2
+        self.qfl_cls = False  # E: class loss = quality focal loss on the IoU-scaled target
+        self.qfl_beta = 2.0
 
     def initialize_biases(self, prior_prob):
         for conv in self.cls_preds:
@@ -321,8 +344,11 @@ class YOLOXHead(nn.Module):
             tgt = torch.where(fg4, reg_targets, unit)
             loss_iou = (self.iou_loss(pred, tgt) * fgf).sum() / nfg
             loss_obj = (self.bcewithlog_loss(obj_preds.reshape(-1, 1), obj_targets)).sum() / nfg
-            loss_cls = (self.bcewithlog_loss(cls_preds.reshape(-1, self.num_classes), cls_targets)
-                        * fgf[:, None]).sum() / nfg
+            cls_logits = cls_preds.reshape(-1, self.num_classes)
+            loss_cls = self.bcewithlog_loss(cls_logits, cls_targets)
+            if self.qfl_cls:  # E: quality focal loss, BCE * |t - sigmoid(logit)|^beta (GFL, arXiv 2006.04388)
+                loss_cls = loss_cls * (cls_targets - cls_logits.float().sigmoid()).abs().pow(self.qfl_beta)
+            loss_cls = (loss_cls * fgf[:, None]).sum() / nfg
             if self.use_l1:
                 opred = origin_preds.reshape(-1, 4)
                 loss_l1 = (self.l1_loss(opred, torch.where(fg4, l1_targets, opred.detach()))
@@ -401,7 +427,13 @@ class YOLOXHead(nn.Module):
         del tl, br, en, area_i, area_a, area_b
         keep = cand[:, None, :] & valid[..., None]
         ious = torch.where(keep, ious, ious.new_zeros(()))
-        ious_loss = -torch.log(ious + 1e-8)
+        tiny = None
+        if self.tiny_px > 0:  # C: price tiny gts' candidates relative to their best one (their IoUs are all low)
+            tiny = (gt_boxes[..., 2:4].max(dim=-1).values < self.tiny_px) & valid  # [B, G]
+            best = ious.max(dim=2, keepdim=True).values.clamp(min=1e-8)
+            ious_loss = -torch.log(torch.where(tiny[..., None], ious / best, ious) + 1e-8)
+        else:
+            ious_loss = -torch.log(ious + 1e-8)
 
         # class cost
         with torch.amp.autocast("cuda", enabled=False):
@@ -416,6 +448,8 @@ class YOLOXHead(nn.Module):
             pick1 = torch.gather(l1m[:, None].expand(B, G, A, C), 3, idx[..., None])[..., 0]
             pick0 = torch.gather(l0[:, None].expand(B, G, A, C), 3, idx[..., None])[..., 0]
             cls_cost = base[:, None, :] + pick1 - pick0
+            if self.soft_cls_cost:
+                cls_cost = soft_class_cost(p, gcls, ious.float())
             del p
 
         cost = cls_cost + 3.0 * ious_loss + float(1e6) * (~is_in_centers)
@@ -426,9 +460,13 @@ class YOLOXHead(nn.Module):
         n_candidate_k = min(10, A)
         topk_ious, _ = torch.topk(ious, n_candidate_k, dim=2)
         dynamic_ks = torch.clamp(topk_ious.sum(2).int(), min=1) * valid  # [B, G]
+        if tiny is not None:  # C: at least tiny_min_k positives for tiny gts (never more than they have candidates)
+            dynamic_ks = torch.where(tiny, dynamic_ks.clamp(min=self.tiny_min_k), dynamic_ks)
         kmax = n_candidate_k  # dynamic_k <= n_candidate_k (sum of <= 10 IoUs <= 10); ranks >= dynamic_k are masked
         _, pos = torch.topk(cost, kmax, dim=2, largest=False)  # [B, G, kmax]
         rank_ok = torch.arange(kmax, device=dev)[None, None, :] < dynamic_ks[..., None]
+        if tiny is not None:  # a raised k can exceed a gt's candidates: never pick a non-candidate (inf cost)
+            rank_ok &= torch.isfinite(torch.gather(cost, 2, pos))
         matching = torch.zeros((B, G, A), dtype=torch.uint8, device=dev)
         matching.scatter_(2, pos, rank_ok.to(torch.uint8))
 
