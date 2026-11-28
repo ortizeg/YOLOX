@@ -531,3 +531,17 @@ remaining ~10 GB.
   `decoupled_weight_decay` there, which `AdamW.__init__` rejects. The rebuild now passes only the constructor's
   arguments (`yolox/utils/fused_optim.py`).
 - **Verdict: stay on torch 2.5.1 + cu124.**
+
+## Graduated flags: one SimOTA/loss path (2026-11-27; `refactor/simota-single-path`)
+
+`simota_batch`, `cls_cost_algebra`, `simota_nosync`, `head_nosync`, `iou_nosync`, `dense_loss` and `no_empty_cache`
+are now the only code path (batched SimOTA, masked dense losses, device-side grids, w·h IoU areas). The names stay
+accepted by `perf.parse` as no-ops (`perf.GRADUATED`). The per-image loop is gone from training; `get_assignments`
+remains for the assignment visualizer. `yolo_head.py` 967 → ~690 lines; `tools/perf/assign_agreement.py` retired.
+
+Equivalence is now checked against a frozen copy of the pre-perf head and IoU loss (`tests/perf/reference/`, fork
+commit 4488863) instead of flag-on vs flag-off: losses, num_fg/num_gts and every gradient within tier-B tolerance
+(rtol 2e-5 losses, 1e-4 gradients) over 1/5/80/365 classes, images and batches without labels, crowded and duplicate
+boxes, ± L1, several sizes on one head, with and without host counts; decode and IoU-loss forward bit-identical;
+full model. GPU: `tests/perf` + `tests/models` 324 pass on an RTX 4090 (nothing skipped), incl. the no-sync step and
+CUDA-graph tests; CPU 304 pass.
