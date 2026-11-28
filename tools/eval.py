@@ -146,6 +146,10 @@ def main(exp, args, num_gpu):
         exp.test_size = (args.tsize, args.tsize)
 
     model = exp.get_model()
+    if hasattr(exp, "configure_head"):  # head options of the run (e.g. dual_head 1), so the checkpoint fits the head
+        changed = exp.configure_head(model.head)
+        if changed:
+            logger.info(f"head options: {changed}")
     logger.info("Model Summary: {}".format(get_model_info(model, exp.test_size)))
     logger.info("Model Structure:\n{}".format(str(model)))
 
