@@ -152,6 +152,9 @@ class YOLOXHead(nn.Module):
         self.soft_cls_cost = False  # E: SimOTA class cost against the IoU-scaled target, weighted by |t - p|^2
         self.qfl_cls = False  # E: class loss = quality focal loss on the IoU-scaled target
         self.qfl_beta = 2.0
+        # ranking: objectness target = IoU / best IoU among the same gt's positives (one positive per gt gets 1),
+        # instead of 1 for every positive, so objectness learns to prefer the best-placed helper
+        self.obj_rel_target = False
         # A: NMS-free dual head (enable_dual_head). o2m = the original branch (several positives per gt, NMS at
         # test time); o2o = second 1x1 prediction layers on the same towers, one positive per gt, no NMS.
         self.dual_head = False
@@ -597,7 +600,13 @@ class YOLOXHead(nn.Module):
             (pred_ious * fg).unsqueeze(-1)
         cls_targets = cls_targets.reshape(B * A, C)
         reg_targets = gt_boxes[bidx, matched_gt_inds].reshape(B * A, 4)
-        obj_targets = fg_flat.unsqueeze(-1).to(dtype)
+        if self.obj_rel_target:
+            pos_iou = torch.where(fg, pred_ious, pred_ious.new_zeros(()))
+            gmax = pos_iou.new_zeros((B, G)).scatter_reduce(1, matched_gt_inds, pos_iou, "amax", include_self=True)
+            rel = pos_iou / gmax.gather(1, matched_gt_inds).clamp(min=1e-6)  # 1 for each gt's best positive
+            obj_targets = rel.reshape(-1, 1).to(dtype)
+        else:
+            obj_targets = fg_flat.unsqueeze(-1).to(dtype)
         l1_targets = None
         if self.use_l1:
             # padded gts (zero boxes) only ever land on non-positive rows; clamp keeps their log finite
