@@ -161,3 +161,18 @@ def test_visualize_assign_result_runs(tmp_path):
     new.visualize_assign_result(xin, make_labels(2, 30, 5, 256, [4, 2], 0), torch.rand(2, 3, 256, 256) * 255,
                                 save_prefix=str(tmp_path / "v_"))
     assert sorted(p.name for p in tmp_path.iterdir()) == ["v_0.png", "v_1.png"]
+
+
+@pytest.mark.parametrize("loss_type", ["iou", "giou"])
+def test_iou_loss_large_boxes_fp16(loss_type):
+    """fp16 boxes larger than 256 x 256 px (area > fp16 max 65504; COCO has many): the loss stays finite and equals
+    the fp32 loss. Regression test for the iou_nosync overflow (w*h in fp16 -> inf - inf = NaN)."""
+    g = torch.Generator().manual_seed(1)
+    tgt = torch.cat([torch.rand(200, 2, generator=g) * 600 + 20, torch.rand(200, 2, generator=g) * 500 + 260], 1)
+    pred = tgt + torch.randn(200, 4, generator=g) * 20
+    pred[:, 2:] = pred[:, 2:].abs() + 1
+    ref = UpstreamIOUloss(reduction="none", loss_type=loss_type)(pred, tgt)
+    new = IOUloss(reduction="none", loss_type=loss_type)(pred.half(), tgt.half())
+    assert torch.isfinite(new).all()
+    torch.testing.assert_close(new, ref, rtol=2e-2, atol=2e-3)  # fp16 inputs vs fp32 inputs
+
