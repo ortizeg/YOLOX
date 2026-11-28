@@ -31,11 +31,24 @@ for spec in "${LIST[@]}"; do
   for try in 1 2 3; do
     env RUN=coco_$arm EXP=$EXP INIT=$INIT BPG=16 WORKERS=16 SYNC=none PERF="$PERF" \
       EXTRA="eval_interval 1000 no_aug_eval_interval 1000 $opts" bash /workspace/YOLOX/tools/perf/o365_train.sh \
-      >> $O/$arm/run.log 2>&1
+      >> $O/$arm/run.log 2>&1 &
+    TP=$!
+    # NaN guard: a loss that is NaN in 5 consecutive log lines (250 iterations) stops the arm, it never recovers
+    while kill -0 $TP 2>/dev/null; do
+      sleep 60
+      L=$(ls -t /workspace/o365_train_*.log 2>/dev/null | head -1)
+      if [ -n "$L" ] && [ "$(grep -oE 'total_loss: [a-z0-9.]+' $L | tail -5 | grep -c nan)" = 5 ]; then
+        log "COCO ARM NAN $arm: stopping"; pkill -f "[o]365_train.sh"; pkill -9 -f "[y]olox.tools.train"
+        pkill -9 -f "[m]ultiprocessing.spawn"; touch $O/$arm/NAN; break
+      fi
+    done
+    wait $TP
+    [ -e $O/$arm/NAN ] && break
     pkill -9 -f "[m]ultiprocessing.spawn"; sleep 10  # leftover ranks / loader workers of a crashed run
     grep -q "Training of experiment is done" /workspace/YOLOX/YOLOX_outputs/coco_$arm/train_log.txt 2>/dev/null && break
     log "COCO ARM RETRY $arm try $try"
   done
+  [ -e $O/$arm/NAN ] && { log "COCO ARM FAILED $arm (NaN)"; touch $O/$arm/DONE; continue; }
   R=/workspace/YOLOX/YOLOX_outputs/coco_$arm
   cp $R/latest_ckpt.pth $R/train_log.txt $O/$arm/ 2>/dev/null
   if [[ " $opts " == *" dual_head 1 "* ]]; then

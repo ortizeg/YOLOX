@@ -16,8 +16,11 @@ class IOUloss(nn.Module):
     def forward(self, pred, target):
         assert pred.shape[0] == target.shape[0]
 
-        pred = pred.view(-1, 4)
-        target = target.view(-1, 4)
+        # fp32: under autocast the w*h products below would run in fp16 (upstream's torch.prod is on autocast's
+        # fp32 list) and any box over ~256x256 px overflows 65504 -> inf - inf = NaN in the union (COCO, not
+        # basketball). Computing the whole loss in fp32 is at least as precise as upstream.
+        pred = pred.reshape(-1, 4).float()
+        target = target.reshape(-1, 4).float()
         tl = torch.max(
             (pred[:, :2] - pred[:, 2:] / 2), (target[:, :2] - target[:, 2:] / 2)
         )
