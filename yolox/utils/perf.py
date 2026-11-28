@@ -14,10 +14,7 @@ import os
 
 TIER = {
     # GPU step
-    "no_empty_cache": "A",  # G1: no torch.cuda.empty_cache() per image in the loss loop
     "nondeterministic": "B",  # G2: keep cudnn.benchmark, do not force cudnn.deterministic when seeded
-    "simota_batch": "B",  # G3+G5+G6 (CPU bit-identical; CUDA topk/argmin tie order can differ): SimOTA for the whole batch at once, no per-image host syncs
-    "cls_cost_algebra": "B",  # G4: pairwise class cost without the [gt x anchor x class] tensor
     "ema_foreach": "A",  # G7: EMA update with torch._foreach_* ops
     "fused_optim": "B",  # G8: fused AdamW / SGD kernels
     "channels_last": "B",  # G9: NHWC memory format
@@ -42,7 +39,6 @@ TIER = {
     "hwc_transport": "A",  # P3: workers return HWC uint8 (no CHW transpose); the trainer permutes on the GPU
     "int_indices": "A",  # P4: InfiniteSampler yields Python ints, not 0-d tensors (no shared-memory pickling)
     "fast_anno": "A",  # P5: annotation parsing with Python min/max instead of np.max/np.min on tuples
-    "simota_nosync": "B",  # P6: batched SimOTA with 2 host syncs per step instead of ~9 (needs simota_batch)
     "resize_nosync": "A",  # P7: multiscale size without a CUDA tensor/.item() (gloo broadcast, no NCCL barrier)
     # pass 4 (tier C: changes the training data distribution, needs accuracy runs)
     "decode_reuse": "C",  # Q3: mosaic/mixup partners drawn from a per-worker pool of recently decoded images
@@ -50,13 +46,22 @@ TIER = {
     "lean_ckpt": "A",  # N9: `latest` every exp.save_interval epochs, last_epoch hardlinked, best/epoch_N weights-only
     "host_label_counts": "A",  # N5: per-image label counts from the CPU targets, not a GPU .tolist() sync in the loss
     "fused_optim_amp": "B",  # N3+N4: rebuild SGD/Adam/AdamW with fused=True in the constructor (sync-free GradScaler step)
-    "head_nosync": "A",  # N2: head grids/stride rows built and cached on the device (per level and size), no H2D copies
     "worker_cv2_threads": "A",  # N1: cv2.setNumThreads(0) + no OpenCL in spawned DDP ranks and every dataloader worker
     # N6: no host sync in a training step (logging steps aside)
-    "iou_nosync": "B",  # IOUloss areas as w*h, not torch.prod (whose backward checks for zeros on the host)
-    "dense_loss": "B",  # SimOTA targets for every anchor + positive mask: masked dense losses, no nonzero() (needs simota_batch)
-    "cuda_graphs": "B",  # N7: backbone + neck + head convs captured per training size and replayed (needs the N6 flags)
+    "cuda_graphs": "B",  # N7: backbone + neck + head convs captured per training size and replayed
     "log_onesync": "A",  # the logging step reads every loss meter in one device-to-host copy, not one .item() each
+}
+
+# Graduated: validated, adopted, and now the only code path (the flag no longer switches anything). Still accepted,
+# so existing launch scripts and saved specs keep working. Reference for equivalence: tests/perf/reference/.
+GRADUATED = {
+    "no_empty_cache",  # G1: the per-image loss loop it applied to is gone
+    "simota_batch",  # G3+G5+G6: batched SimOTA is the only assignment path in training
+    "cls_cost_algebra",  # G4
+    "simota_nosync",  # P6
+    "head_nosync",  # N2: grids and stride rows built and cached on the device
+    "iou_nosync",  # N6: IOUloss areas as w*h
+    "dense_loss",  # N6: masked dense losses over every anchor
 }
 
 _FLAGS: set[str] = set()
@@ -70,6 +75,7 @@ def parse(spec: str | None) -> set[str]:
         names = (names - {"all"}) | {k for k, t in TIER.items() if t != "C"}
     if "tierA" in names:
         names = (names - {"tierA"}) | {k for k, t in TIER.items() if t == "A"}
+    names -= GRADUATED
     unknown = names - set(TIER)
     if unknown:
         raise ValueError(f"unknown perf flags: {sorted(unknown)}; known: {sorted(TIER)}")
@@ -86,7 +92,7 @@ def set_flags(spec) -> set[str]:
 
 
 def on(name: str) -> bool:
-    assert name in TIER, name
+    assert name in TIER, name  # a graduated name here is a leftover branch: remove it
     return name in _FLAGS
 
 

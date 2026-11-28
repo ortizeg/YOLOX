@@ -1,5 +1,6 @@
-"""GPU-step perf flags on CPU: batched SimOTA (tier A: identical losses and gradients), class-cost algebra
-(tier B: allclose), SPP chain (A), Focus as strided conv (B), foreach EMA (A)."""
+"""GPU-step perf flags on CPU: SPP chain (A), Focus as strided conv (B), foreach EMA (A). The head/SimOTA/loss path
+(formerly simota_batch, cls_cost_algebra, no_empty_cache, ...) is tested against the frozen upstream head in
+test_head_reference.py."""
 
 import copy
 
@@ -24,62 +25,6 @@ def make_labels(B, M, C, size, counts, seed):
             cy = float(torch.rand(1, generator=g)) * (size - h) + h / 2
             lab[b, i] = torch.tensor([float(torch.randint(0, C, (1,), generator=g)), cx, cy, w, h])
     return lab
-
-
-def head_losses(spec, C, counts, use_l1, seed, size=320, crowd=False):
-    torch.manual_seed(seed)
-    head = YOLOXHead(C, width=0.25, in_channels=[256, 512, 1024])
-    head.initialize_biases(1e-2)
-    head.use_l1 = use_l1
-    head.train()
-    B = len(counts)
-    xin = [torch.randn(B, int(c * 0.25), size // s, size // s, requires_grad=True)
-           for c, s in zip([256, 512, 1024], [8, 16, 32])]
-    labels = make_labels(B, 120, C, size, counts, seed)
-    if crowd:  # duplicate boxes -> anchors matched by several gts (conflict path) and cost ties
-        labels[0, counts[0] // 2:counts[0]] = labels[0, :counts[0] - counts[0] // 2]
-    with flags(spec):
-        out = head(xin, labels=labels, imgs=None)
-        out[0].backward()
-    grads = [x.grad.clone() for x in xin] + [p.grad.clone() for p in head.parameters()]
-    return [o if torch.is_tensor(o) else torch.tensor(float(o)) for o in out], grads
-
-
-CASES = [(5, [7, 0, 23, 1], False, 0), (5, [40, 12], True, 1), (80, [15, 30, 2], False, 2),
-         (5, [60, 60], True, 3)]
-
-
-@pytest.mark.parametrize("C,counts,use_l1,seed", CASES)
-def test_simota_batch_identical(C, counts, use_l1, seed):
-    ref, rg = head_losses("", C, counts, use_l1, seed)
-    new, ng = head_losses("simota_batch", C, counts, use_l1, seed)
-    for a, b in zip(ref, new):
-        assert torch.equal(a, b), (a, b)
-    for a, b in zip(rg, ng):
-        assert torch.equal(a, b)
-
-
-def test_simota_batch_identical_crowded():
-    ref, rg = head_losses("", 5, [30, 8], True, 11, crowd=True)
-    new, ng = head_losses("simota_batch", 5, [30, 8], True, 11, crowd=True)
-    assert all(torch.equal(a, b) for a, b in zip(ref, new))
-    assert all(torch.equal(a, b) for a, b in zip(rg, ng))
-
-
-@pytest.mark.parametrize("C,counts,use_l1,seed", CASES)
-def test_cls_cost_algebra_close(C, counts, use_l1, seed):
-    ref, rg = head_losses("", C, counts, use_l1, seed)
-    new, ng = head_losses("simota_batch,cls_cost_algebra", C, counts, use_l1, seed)
-    for a, b in zip(ref, new):
-        assert torch.allclose(a, b, rtol=1e-4, atol=1e-6), (a, b)
-    for a, b in zip(rg, ng):
-        assert torch.allclose(a, b, rtol=1e-3, atol=1e-6)
-
-
-def test_no_empty_cache_identical():
-    ref, _ = head_losses("", 5, [9, 3], False, 4)
-    new, _ = head_losses("no_empty_cache", 5, [9, 3], False, 4)
-    assert all(torch.equal(a, b) for a, b in zip(ref, new))
 
 
 @pytest.mark.parametrize("train", [True, False])
@@ -142,7 +87,7 @@ def test_full_model_forward_flags():
     lab = make_labels(2, 50, 5, 256, [6, 3], 0)
     with flags(""):
         ref = model(x, lab)["total_loss"]
-    with flags("sppf,simota_batch,no_empty_cache"):
+    with flags("sppf"):
         a = model(x, lab)["total_loss"]
     with flags("all"):
         b = model(x, lab)["total_loss"]

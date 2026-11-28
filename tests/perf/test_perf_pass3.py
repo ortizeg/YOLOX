@@ -21,7 +21,6 @@ from yolox.exp import Exp
 
 from .conftest import flags, seed_all
 from .test_perf_data import DATA_FLAGS, build, samples
-from .test_perf_model import CASES, head_losses
 
 PASS3_DATA = "cv_flip,preproc_nopad,hwc_transport"
 
@@ -202,32 +201,6 @@ def test_fast_anno_identical(coco_dir, tmp_path, extra):
 
 
 # ---------------------------------------------------------------- batched SimOTA without syncs (B; CPU exact)
-
-@pytest.mark.parametrize("C,counts,use_l1,seed", CASES + [(365, [40, 3, 0, 17], True, 5)])
-def test_simota_nosync_identical(C, counts, use_l1, seed):
-    ref, rg = head_losses("simota_batch", C, counts, use_l1, seed)
-    new, ng = head_losses("simota_batch,simota_nosync", C, counts, use_l1, seed)
-    loop, lg = head_losses("", C, counts, use_l1, seed)
-    for a, b, c in zip(ref, new, loop):
-        assert torch.equal(a, b) and torch.equal(c, b), (a, b, c)
-    for a, b, c in zip(rg, ng, lg):
-        assert torch.equal(a, b) and torch.equal(c, b)
-
-
-def test_simota_nosync_crowded_and_empty():
-    for counts, crowd in (([30, 8], True), ([0, 0], False), ([1], False)):
-        ref, rg = head_losses("simota_batch", 5, counts, True, 11, crowd=crowd)
-        new, ng = head_losses("simota_batch,simota_nosync", 5, counts, True, 11, crowd=crowd)
-        assert all(torch.equal(a, b) for a, b in zip(ref, new)), counts
-        assert all(torch.equal(a, b) for a, b in zip(rg, ng)), counts
-
-
-def test_simota_nosync_with_cls_cost_algebra():
-    ref, rg = head_losses("simota_batch,cls_cost_algebra", 80, [15, 30, 2], True, 2)
-    new, ng = head_losses("simota_batch,cls_cost_algebra,simota_nosync", 80, [15, 30, 2], True, 2)
-    assert all(torch.equal(a, b) for a, b in zip(ref, new))
-    assert all(torch.equal(a, b) for a, b in zip(rg, ng))
-
 
 # ---------------------------------------------------------------- multiscale size draw (tier A)
 

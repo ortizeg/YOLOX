@@ -1,11 +1,11 @@
 """host_label_counts (tier A): per-image label counts computed from the CPU targets equal the head's device rule,
-and handing them to the head gives bit-identical losses and gradients (with and without simota_batch)."""
+and handing them to the head gives bit-identical losses and gradients. The flag controls whether the trainer
+provides the counts; the head uses them whenever they are set and counts on the device otherwise."""
 
 import warnings
 
 import pytest
 import torch
-from loguru import logger
 
 from yolox.models import YOLOPAFPN, YOLOX, YOLOXHead
 from yolox.utils import perf
@@ -121,16 +121,14 @@ def assert_identical(a, b):
 CASES = [(5, [7, 0, 23, 1], False, 0), (5, [40, 12], True, 1), (80, [15, 30, 2], False, 2), (5, [0, 0], False, 3)]
 
 
-@pytest.mark.parametrize("base", ["", "simota_batch", "simota_batch,simota_nosync"])
 @pytest.mark.parametrize("C,counts,use_l1,seed", CASES)
-def test_head_identical(base, C, counts, use_l1, seed):
-    ref = head_run(base, None, C, counts, use_l1, seed)
-    new = head_run(f"{base},host_label_counts".lstrip(","), "host", C, counts, use_l1, seed)
+def test_head_identical(C, counts, use_l1, seed):
+    ref = head_run("", None, C, counts, use_l1, seed)
+    new = head_run("host_label_counts", "host", C, counts, use_l1, seed)
     assert_identical(ref, new)
 
 
-@pytest.mark.parametrize("base", ["", "simota_batch"])
-def test_full_model_identical(base):
+def test_full_model_identical():
     """Through YOLOX.forward with the trainer's helper (fp32 CPU, so the step is deterministic)."""
     def run(spec):
         model = tiny_yolox()
@@ -145,36 +143,19 @@ def test_full_model_identical(base):
             out["total_loss"].backward()
         return ([out[k] if torch.is_tensor(out[k]) else torch.tensor(float(out[k])) for k in sorted(out)],
                 [p.grad.clone() for p in model.parameters() if p.grad is not None])
-    assert_identical(run(base), run(f"{base},host_label_counts".lstrip(",")))
+    assert_identical(run(""), run("host_label_counts"))
 
 
-@pytest.mark.parametrize("base", ["", "simota_batch"])
-def test_missing_counts_fall_back(base):
-    """Flag on but no counts set (e.g. a caller driving the model directly): device count, same results, one
-    warning per head; a wrong-length list is a caller bug and raises."""
-    msgs = []
-    sink = logger.add(lambda m: msgs.append(str(m)), level="WARNING")
-    try:
-        ref = head_run(base, None, 5, [7, 0, 3], False, 5)
-        new = head_run(f"{base},host_label_counts".lstrip(","), None, 5, [7, 0, 3], False, 5)
-    finally:
-        logger.remove(sink)
-    assert_identical(ref, new)
-    assert sum("host_label_counts" in m for m in msgs) == 1
+def test_missing_counts_fall_back():
+    """No counts set (e.g. a caller driving the model directly): device count, same results; a wrong-length list
+    is a caller bug and raises."""
+    ref = head_run("", None, 5, [7, 0, 3], False, 5)
+    assert_identical(ref, head_run("host_label_counts", None, 5, [7, 0, 3], False, 5))
     head = YOLOXHead(5, width=0.25)
     head.host_label_counts = [1, 2]
     with pytest.raises(ValueError, match="2 host label counts for a batch of 3"):
         head.take_host_label_counts(3)
     assert head.host_label_counts is None
-
-
-@pytest.mark.parametrize("base", ["", "simota_batch"])
-def test_flag_off_never_reads_counts(base, monkeypatch):
-    """Flag off: the host-count hook is never called (original code path)."""
-    def boom(self, batch_size):
-        raise AssertionError("host counts read with the flag off")
-    monkeypatch.setattr(YOLOXHead, "take_host_label_counts", boom)
-    head_run(base, None, 5, [4, 9], False, 6)
 
 
 @cuda
@@ -212,10 +193,9 @@ def count_sync_warnings(spec, counts):
 
 
 @cuda
-@pytest.mark.parametrize("base,saved", [("simota_batch", 1), ("simota_batch,simota_nosync", 1), ("", 3)])
-def test_no_count_sync_cuda(base, saved):
-    """The head's count read-back is gone: one sync fewer per step (batched SimOTA), one per image (loop path)."""
+def test_no_count_sync_cuda():
+    """With host counts the head's count read-back is gone (the only sync in the head's forward)."""
     counts = [5, 0, 9]
-    off = count_sync_warnings(base, counts)
-    on = count_sync_warnings(f"{base},host_label_counts".lstrip(","), counts)
-    assert off - on >= saved, (off, on)
+    off = count_sync_warnings("", counts)
+    on = count_sync_warnings("host_label_counts", counts)
+    assert (off, on) == (1, 0), (off, on)

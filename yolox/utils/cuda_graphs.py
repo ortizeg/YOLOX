@@ -1,7 +1,7 @@
 """Perf flag ``cuda_graphs`` (N7): replay the static-shape part of the training step as CUDA graphs.
 
 The trunk = backbone + neck + the head's per-level convs and predictions, ending in each level's
-``cat([reg, obj, cls], 1)``. For a fixed input shape it has fixed shapes and (with the N6 flags) no host sync, so its
+``cat([reg, obj, cls], 1)``. For a fixed input shape it has fixed shapes and no host sync, so its
 forward and backward are captured once per training size with ``torch.cuda.make_graphed_callables`` and replayed;
 decode, SimOTA and the losses stay eager. One graph per multiscale size (2 * multiscale_range + 1), all sharing one
 memory pool: at most one size runs per iteration and its backward always follows its own forward, so the graphs'
