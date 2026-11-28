@@ -8,7 +8,7 @@
 #   ARMS="base:|ctiny:tiny_px 16" INIT=/workspace/o365.pth bash tools/perf/coco_ablation.sh
 set -u
 INIT=${INIT:-/workspace/o365.pth}
-EXP=exps/perf/yolox_m_coco_ft_o365.py
+EXP=${EXP:-exps/perf/yolox_m_coco_ft_o365.py}
 O=/workspace/coco_abl; mkdir -p $O
 PERF=${PERF:-nondeterministic,ema_foreach,fused_optim,sppf,focus_conv,channels_last,uint8_transport,skip_noop_resize,hsv_lut,int_mixup,class_map,ddp_bucket_view,async_ckpt,eval_persistent,eval_amp,cv_flip,preproc_nopad,hwc_transport,int_indices,fast_anno,resize_nosync,anno_cache,worker_cv2_threads,host_label_counts,lean_ckpt,fused_optim_amp,log_onesync,cuda_graphs}
 log() { echo "$* $(date -u +%FT%TZ)" >> /workspace/finish.log; }
