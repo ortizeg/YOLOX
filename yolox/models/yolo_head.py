@@ -2,6 +2,7 @@
 # -*- coding:utf-8 -*-
 # Copyright (c) Megvii Inc. All rights reserved.
 
+import copy
 import math
 from loguru import logger
 
@@ -151,6 +152,12 @@ class YOLOXHead(nn.Module):
         self.soft_cls_cost = False  # E: SimOTA class cost against the IoU-scaled target, weighted by |t - p|^2
         self.qfl_cls = False  # E: class loss = quality focal loss on the IoU-scaled target
         self.qfl_beta = 2.0
+        # A: NMS-free dual head (enable_dual_head). o2m = the original branch (several positives per gt, NMS at
+        # test time); o2o = second 1x1 prediction layers on the same towers, one positive per gt, no NMS.
+        self.dual_head = False
+        self.progloss = (0.8, 0.2, 0.1, 0.9)  # (o2m, o2o) loss weights at the start, then at the end of training
+        self.progress = 0.0  # training progress in [0, 1], set by the trainer every iteration
+        self.infer_o2o = True  # eval/inference output from the o2o branch (False: o2m, which needs NMS)
 
     def initialize_biases(self, prior_prob):
         for conv in self.cls_preds:
@@ -163,19 +170,94 @@ class YOLOXHead(nn.Module):
             b.data.fill_(-math.log((1 - prior_prob) / prior_prob))
             conv.bias = torch.nn.Parameter(b.view(-1), requires_grad=True)
 
+    def _forward_dual(self, xin, labels, imgs, raw):
+        """A: both branches from the shared towers. Training: SimOTA (o2m) and one-to-one (o2o) losses on the same
+        candidates and cost, blended by ProgLoss. Inference: one branch's decoded output (``infer_o2o``)."""
+        if raw is None:
+            raw = self.raw_outputs(xin)
+        n = 5 + self.num_classes
+        if not self.training:
+            b = 1 if self.infer_o2o else 0
+            outputs = []
+            for r in raw:
+                o = r[:, b * n:(b + 1) * n]
+                outputs.append(torch.cat([o[:, :4], o[:, 4:5].sigmoid(), o[:, 5:].sigmoid()], 1))
+            self.hw = [x.shape[-2:] for x in outputs]
+            outputs = torch.cat([x.flatten(start_dim=2) for x in outputs], dim=2).permute(0, 2, 1)
+            return self.decode_outputs(outputs) if self.decode_in_inference else outputs
+        outs, origin = ([], []), ([], [])
+        xs, ys, st = [], [], []
+        for k, (stride, r) in enumerate(zip(self.strides, raw)):
+            for b in (0, 1):
+                o = r[:, b * n:(b + 1) * n]
+                if self.use_l1:
+                    reg = o[:, :4]
+                    B, _, h, w = reg.shape
+                    origin[b].append(reg.reshape(B, 1, 4, h, w).permute(0, 1, 3, 4, 2).reshape(B, -1, 4).clone())
+                o, grid, row = self.get_output_and_grid(o, k, stride, r.dtype, r.device)
+                outs[b].append(o)
+                if b == 0:
+                    xs.append(grid[:, :, 0])
+                    ys.append(grid[:, :, 1])
+                    st.append(row)
+        xs, ys, st = (torch.cat(t, 1) for t in (xs, ys, st))
+        counts = self.take_host_label_counts(labels.shape[0])  # consumed once, used by both branches
+        l_m = self.get_losses(imgs, xs, ys, st, labels, torch.cat(outs[0], 1), origin[0], r.dtype, counts=counts)
+        l_o = self.get_losses(imgs, xs, ys, st, labels, torch.cat(outs[1], 1), origin[1], r.dtype, counts=counts,
+                              one_to_one=True)
+        wm, wo = self.progloss_weights()
+        return tuple(wm * a + wo * b for a, b in zip(l_m[:5], l_o[:5])) + (l_m[5],)
+
+    def enable_dual_head(self):
+        """A: add the one-to-one branch (copies of the 1x1 prediction layers, same towers). Idempotent. The copies
+        are re-initialised from the o2m layers after the checkpoint loads (``init_o2o_from_o2m``) unless the
+        checkpoint already carries a trained o2o branch (``o2o_initialized``)."""
+        if self.dual_head:
+            return
+        self.dual_head = True
+        self.cls_preds_o2o = copy.deepcopy(self.cls_preds)
+        self.reg_preds_o2o = copy.deepcopy(self.reg_preds)
+        self.obj_preds_o2o = copy.deepcopy(self.obj_preds)
+        p = next(self.cls_preds.parameters())
+        self.register_buffer("o2o_initialized", torch.zeros((), dtype=torch.uint8, device=p.device))
+
+    @torch.no_grad()
+    def init_o2o_from_o2m(self):
+        """Copy the (pretrained / loaded) o2m prediction layers into the o2o branch, once."""
+        if not self.dual_head or int(self.o2o_initialized):
+            return False
+        for src, dst in ((self.cls_preds, self.cls_preds_o2o), (self.reg_preds, self.reg_preds_o2o),
+                         (self.obj_preds, self.obj_preds_o2o)):
+            dst.load_state_dict(src.state_dict())
+        self.o2o_initialized.fill_(1)
+        return True
+
+    def progloss_weights(self):
+        """ProgLoss: (o2m, o2o) weights moving linearly from progloss[:2] to progloss[2:] over training."""
+        t = min(max(float(self.progress), 0.0), 1.0)
+        a0, b0, a1, b1 = self.progloss
+        return a0 + (a1 - a0) * t, b0 + (b1 - b0) * t
+
     def raw_outputs(self, xin):
-        """Training-mode per-level ``cat([reg, obj, cls], 1)``: the convs only (the CUDA-graph trunk, ``cuda_graphs``)."""
+        """Training-mode per-level ``cat([reg, obj, cls], 1)``: the convs only (the CUDA-graph trunk, ``cuda_graphs``).
+        With the dual head the o2o branch follows on the channel axis: [B, 2 * (5 + C), H, W]."""
         outs = []
         for k, (cls_conv, reg_conv, x) in enumerate(zip(self.cls_convs, self.reg_convs, xin)):
             x = self.stems[k](x)
-            cls_output = self.cls_preds[k](cls_conv(x))
+            cls_feat = cls_conv(x)
             reg_feat = reg_conv(x)
-            outs.append(torch.cat([self.reg_preds[k](reg_feat), self.obj_preds[k](reg_feat), cls_output], 1))
+            parts = [self.reg_preds[k](reg_feat), self.obj_preds[k](reg_feat), self.cls_preds[k](cls_feat)]
+            if self.dual_head:
+                parts += [self.reg_preds_o2o[k](reg_feat), self.obj_preds_o2o[k](reg_feat),
+                          self.cls_preds_o2o[k](cls_feat)]
+            outs.append(torch.cat(parts, 1))
         return outs
 
     def forward(self, xin, labels=None, imgs=None, raw=None):
         """``raw``: per-level outputs of ``raw_outputs`` already computed (training only; ``xin`` then only gives the
         dtype and device, and is ``raw`` itself)."""
+        if self.dual_head:
+            return self._forward_dual(xin, labels, imgs, raw)
         outputs = []
         origin_preds = []
         x_shifts = []
@@ -311,7 +393,11 @@ class YOLOXHead(nn.Module):
         outputs,
         origin_preds,
         dtype,
+        counts="take",
+        one_to_one=False,
     ):
+        """``counts``: host label counts, or "take" to consume the ones the trainer set (the dual head takes them
+        once and passes them to both branches). ``one_to_one``: one positive per gt (arm A's second branch)."""
         bbox_preds = outputs[:, :, :4]  # [batch, n_anchors_all, 4]
         obj_preds = outputs[:, :, 4:5]  # [batch, n_anchors_all, 1]
         cls_preds = outputs[:, :, 5:]  # [batch, n_anchors_all, n_cls]
@@ -319,17 +405,20 @@ class YOLOXHead(nn.Module):
         # calculate targets
         nlabel = (labels.sum(dim=2) > 0).sum(dim=1)  # number of objects
 
-        x_shifts = torch.cat(x_shifts, 1)  # [1, n_anchors_all]
-        y_shifts = torch.cat(y_shifts, 1)  # [1, n_anchors_all]
-        expanded_strides = torch.cat(expanded_strides, 1)
-        if self.use_l1:
+        if isinstance(x_shifts, (list, tuple)):
+            x_shifts = torch.cat(x_shifts, 1)  # [1, n_anchors_all]
+            y_shifts = torch.cat(y_shifts, 1)  # [1, n_anchors_all]
+            expanded_strides = torch.cat(expanded_strides, 1)
+        if self.use_l1 and isinstance(origin_preds, (list, tuple)):
             origin_preds = torch.cat(origin_preds, 1)
+        if isinstance(counts, str):
+            counts = self.take_host_label_counts(labels.shape[0])
 
         with stage("head_targets"):  # SimOTA assignment, the whole batch at once
             (cls_targets, reg_targets, obj_targets, fg, l1_targets, num_fg,
              num_gts) = self.get_targets_batched(
                 labels, nlabel, bbox_preds, obj_preds, cls_preds, expanded_strides, x_shifts, y_shifts, dtype,
-                counts=self.take_host_label_counts(labels.shape[0]))
+                counts=counts, one_to_one=one_to_one)
 
         # Losses summed over every anchor with the positive mask (upstream gathers the positives first; the sums
         # differ only in order). Non-positive rows contribute exactly 0 to the loss and to every gradient: their IoU
@@ -374,7 +463,7 @@ class YOLOXHead(nn.Module):
 
     @torch.no_grad()
     def get_targets_batched(self, labels, nlabel, bbox_preds, obj_preds, cls_preds, expanded_strides,
-                            x_shifts, y_shifts, dtype, counts=None):
+                            x_shifts, y_shifts, dtype, counts=None, one_to_one=False):
         """SimOTA for the whole batch at once.
 
         Same element-wise maths as upstream's per-image ``get_assignments`` / ``simota_matching``, with ground
@@ -456,6 +545,16 @@ class YOLOXHead(nn.Module):
         cost = torch.where(keep, cost, cost.new_full((), float("inf")))  # non-candidates and padded gts never match
         del cls_cost, ious_loss
 
+        if one_to_one:
+            # A (dual head): exactly one positive per gt, the cheapest candidate under the same cost (consistent
+            # matching, YOLOv10 / YOLO26); gts without a finite-cost candidate get none
+            best_a = cost.argmin(dim=2)  # [B, G]
+            ok = valid & torch.isfinite(torch.gather(cost, 2, best_a[..., None])[..., 0])
+            matching = torch.zeros((B, G, A), dtype=torch.uint8, device=dev)
+            matching.scatter_(2, best_a[..., None], ok[..., None].to(torch.uint8))
+            return self._targets_from_matching(matching, cost, ious, gt_boxes, gt_classes, bbox_preds, strides,
+                                               x_shifts, y_shifts, dtype, num_gts)
+
         # dynamic k (simota_matching)
         n_candidate_k = min(10, A)
         topk_ious, _ = torch.topk(ious, n_candidate_k, dim=2)
@@ -469,7 +568,15 @@ class YOLOXHead(nn.Module):
             rank_ok &= torch.isfinite(torch.gather(cost, 2, pos))
         matching = torch.zeros((B, G, A), dtype=torch.uint8, device=dev)
         matching.scatter_(2, pos, rank_ok.to(torch.uint8))
+        return self._targets_from_matching(matching, cost, ious, gt_boxes, gt_classes, bbox_preds, strides,
+                                           x_shifts, y_shifts, dtype, num_gts)
 
+    def _targets_from_matching(self, matching, cost, ious, gt_boxes, gt_classes, bbox_preds, strides, x_shifts,
+                               y_shifts, dtype, num_gts):
+        """Resolve anchors claimed by several gts (keep the cheapest) and build the per-anchor targets."""
+        B, G, A = matching.shape
+        C = self.num_classes
+        dev = matching.device
         # one anchor matched to several gts -> keep the cheapest gt
         anchor_matching_gt = matching.sum(1)  # [B, A]
         multiple = anchor_matching_gt > 1

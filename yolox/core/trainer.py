@@ -182,6 +182,9 @@ class Trainer:
         data_end_time = time.time()
 
         # cuda_graphs: the graphs were captured without the autocast weight-cast cache, so the eager part runs without it
+        head = (self.model.module if self.is_distributed else self.model).head
+        if getattr(head, "dual_head", False):  # ProgLoss schedule
+            head.progress = self.progress_in_iter / max(self.max_iter * self.max_epoch, 1)
         with stage("forward"), torch.amp.autocast("cuda", enabled=self.amp_training, dtype=self.amp_dtype,
                                                   cache_enabled=not perf.on("cuda_graphs")):
             outputs = self.model(inps, targets)
@@ -250,6 +253,8 @@ class Trainer:
 
         # value of epoch will be set in `resume_train`
         model = self.resume_train(model)
+        if getattr(model.head, "dual_head", False) and model.head.init_o2o_from_o2m():
+            logger.info("dual head: o2o prediction layers initialised from the (loaded) o2m layers")
 
         if perf.on("cuda_graphs") and not perf.on("compile") and not getattr(self.args, "compile", False):
             # after channels_last and the checkpoint load, before the data loader and DDP (nothing else on the GPU)

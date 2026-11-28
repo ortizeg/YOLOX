@@ -126,15 +126,23 @@ class Exp(BaseExp):
     soft_cls_cost = 0
     qfl_cls = 0
     qfl_beta = 2.0
-    HEAD_OPTIONS = ("tiny_px", "tiny_min_k", "soft_cls_cost", "qfl_cls", "qfl_beta")
+    dual_head = 0  # A: NMS-free one-to-one branch (eval with nmsthre 1.0 to score it without NMS)
+    infer_o2o = 1  # A: eval/inference from the o2o branch (0: the o2m branch, with NMS)
+    progloss = (0.8, 0.2, 0.1, 0.9)  # A: (o2m, o2o) loss weights at the start, then at the end of training
+    HEAD_OPTIONS = ("tiny_px", "tiny_min_k", "soft_cls_cost", "qfl_cls", "qfl_beta", "infer_o2o", "progloss")
 
     def configure_head(self, head):
         """Copy the head options onto any head that has them (exps build their own heads; the trainer calls this)."""
         changed = {}
+        if int(getattr(self, "dual_head", 0)) and hasattr(head, "enable_dual_head") and not head.dual_head:
+            head.enable_dual_head()
+            changed["dual_head"] = True
         for k in self.HEAD_OPTIONS:
             if hasattr(head, k):
                 v = getattr(self, k)
-                v = bool(v) if isinstance(getattr(head, k), bool) else type(getattr(head, k))(v)
+                cur = getattr(head, k)
+                v = bool(v) if isinstance(cur, bool) else (tuple(float(x) for x in v) if isinstance(cur, tuple)
+                                                          else type(cur)(v))
                 if v != getattr(head, k):
                     changed[k] = v
                 setattr(head, k, v)
