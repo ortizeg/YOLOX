@@ -149,3 +149,30 @@ def test_tiny_rule():
         assert bool(inside[on_tiny].all())
     assert res[12.0][0] >= 2 and res[12.0][0] >= res[0.0][0]
     assert torch.equal(res[0.0][1], res[12.0][1])  # the large gt's assignment is unchanged
+
+
+def test_obj_rel_target():
+    """Each gt's best positive gets objectness target 1, its other positives IoU / best IoU < 1, background 0; the
+    o2m positives themselves are unchanged."""
+    lab, xin = crowd(), feats(2, 320, 5)
+    res = {}
+    for rel in (False, True):
+        h = head(obj_rel_target=rel)
+        got = capture_targets(h)
+        h.host_label_counts = [20, 6]
+        out = h(xin, labels=lab, imgs=None)
+        out[0].backward()
+        assert torch.isfinite(out[0])
+        cls_t, reg_t, obj_t, fg, _, _, _ = got["out"]
+        res[rel] = (fg.clone(), obj_t.clone(), reg_t.clone(), cls_t.clone())
+    fg0, obj0, reg_t, cls_t = res[False]
+    fg1, obj1, _, _ = res[True]
+    assert torch.equal(fg0, fg1) and torch.equal(obj0[:, 0], fg0.float())
+    assert float(obj1[~fg1].abs().sum()) == 0.0
+    pos_iou = cls_t.max(1).values  # IoU-scaled class target = the positive's IoU with its gt
+    for key in {tuple(x.tolist()) for x in reg_t[fg1]}:
+        same = fg1 & (reg_t == torch.tensor(key)).all(1)
+        o, iou = obj1[same, 0], pos_iou[same]
+        torch.testing.assert_close(o.max(), torch.tensor(1.0))
+        torch.testing.assert_close(o, iou / iou.max(), rtol=1e-5, atol=1e-6)
+

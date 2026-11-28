@@ -129,7 +129,9 @@ class Exp(BaseExp):
     dual_head = 0  # A: NMS-free one-to-one branch (eval with nmsthre 1.0 to score it without NMS)
     infer_o2o = 1  # A: eval/inference from the o2o branch (0: the o2m branch, with NMS)
     progloss = (0.8, 0.2, 0.1, 0.9)  # A: (o2m, o2o) loss weights at the start, then at the end of training
-    HEAD_OPTIONS = ("tiny_px", "tiny_min_k", "soft_cls_cost", "qfl_cls", "qfl_beta", "infer_o2o", "progloss")
+    obj_rel_target = 0  # ranking: objectness target = IoU / best IoU of the gt's positives (instead of 1)
+    HEAD_OPTIONS = ("tiny_px", "tiny_min_k", "soft_cls_cost", "qfl_cls", "qfl_beta", "infer_o2o", "progloss",
+                    "obj_rel_target")
 
     def configure_head(self, head):
         """Copy the head options onto any head that has them (exps build their own heads; the trainer calls this)."""
